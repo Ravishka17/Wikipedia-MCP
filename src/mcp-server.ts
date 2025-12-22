@@ -33,7 +33,31 @@ export class MCPServer {
     };
   }
 
+  private getClient(args: any): WikipediaClient {
+    if (args.language || args.country) {
+      // Create new client if language/country override is specified
+      return new WikipediaClient({
+        language: args.language || this.wikipediaClient.getLanguage(), // fallback to current lang if only country provided (though Client logic handles this)
+        country: args.country,
+        enableCache: false, // Disable cache for one-off requests to avoid pollution or complexity
+        accessToken: (this.wikipediaClient as any).accessToken 
+      });
+    }
+    return this.wikipediaClient;
+  }
+
   private getToolsList() {
+    const commonProps = {
+      language: {
+        type: 'string',
+        description: 'Wikipedia language code (e.g., "en", "es", "ja")'
+      },
+      country: {
+        type: 'string',
+        description: 'Country code to infer language (e.g., "US", "JP")'
+      }
+    };
+
     return [
       {
         name: 'search_wikipedia',
@@ -51,7 +75,8 @@ export class MCPServer {
               default: 10,
               minimum: 1,
               maximum: 500
-            }
+            },
+            ...commonProps
           },
           required: ['query']
         }
@@ -65,7 +90,8 @@ export class MCPServer {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -79,7 +105,8 @@ export class MCPServer {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -93,7 +120,8 @@ export class MCPServer {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -107,7 +135,8 @@ export class MCPServer {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -121,7 +150,8 @@ export class MCPServer {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -142,7 +172,8 @@ export class MCPServer {
               default: 10,
               minimum: 1,
               maximum: 50
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -167,7 +198,8 @@ export class MCPServer {
               default: 250,
               minimum: 50,
               maximum: 1000
-            }
+            },
+            ...commonProps
           },
           required: ['title', 'query']
         }
@@ -192,7 +224,8 @@ export class MCPServer {
               default: 150,
               minimum: 50,
               maximum: 500
-            }
+            },
+            ...commonProps
           },
           required: ['title', 'section_title']
         }
@@ -217,7 +250,8 @@ export class MCPServer {
               default: 5,
               minimum: 1,
               maximum: 20
-            }
+            },
+            ...commonProps
           },
           required: ['title']
         }
@@ -289,6 +323,7 @@ export class MCPServer {
 
   private async handleSearchWikipedia(args: any) {
     const { query, limit = 10 } = args;
+    const client = this.getClient(args);
 
     if (!query || !query.trim()) {
       return {
@@ -307,7 +342,7 @@ export class MCPServer {
     }
 
     const validatedLimit = Math.min(Math.max(limit, 1), 500);
-    const results = await this.wikipediaClient.search(query, { limit: validatedLimit });
+    const results = await client.search(query, { limit: validatedLimit });
     const status = results.length > 0 ? 'success' : 'no_results';
 
     const response: any = {
@@ -315,7 +350,7 @@ export class MCPServer {
       results: results,
       status: status,
       count: results.length,
-      language: this.wikipediaClient.getLanguage()
+      language: client.getLanguage()
     };
 
     if (!results.length) {
@@ -334,6 +369,7 @@ export class MCPServer {
 
   private async handleGetArticle(args: any) {
     const { title } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -350,7 +386,7 @@ export class MCPServer {
       };
     }
 
-    const article = await this.wikipediaClient.getArticle(title);
+    const article = await client.getArticle(title);
 
     return {
       content: [
@@ -364,6 +400,7 @@ export class MCPServer {
 
   private async handleGetSummary(args: any) {
     const { title } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -380,7 +417,7 @@ export class MCPServer {
       };
     }
 
-    const summary = await this.wikipediaClient.getSummary(title);
+    const summary = await client.getSummary(title);
     const isError = summary.startsWith('Error:');
 
     return {
@@ -399,6 +436,7 @@ export class MCPServer {
 
   private async handleGetSections(args: any) {
     const { title } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -415,7 +453,7 @@ export class MCPServer {
       };
     }
 
-    const sections = await this.wikipediaClient.getSections(title);
+    const sections = await client.getSections(title);
 
     return {
       content: [
@@ -432,6 +470,7 @@ export class MCPServer {
 
   private async handleGetLinks(args: any) {
     const { title } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -448,7 +487,7 @@ export class MCPServer {
       };
     }
 
-    const links = await this.wikipediaClient.getLinks(title);
+    const links = await client.getLinks(title);
 
     return {
       content: [
@@ -465,6 +504,7 @@ export class MCPServer {
 
   private async handleGetCoordinates(args: any) {
     const { title } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -483,7 +523,7 @@ export class MCPServer {
       };
     }
 
-    const coordinates = await this.wikipediaClient.getCoordinates(title);
+    const coordinates = await client.getCoordinates(title);
 
     return {
       content: [
@@ -497,6 +537,7 @@ export class MCPServer {
 
   private async handleGetRelatedTopics(args: any) {
     const { title, limit = 10 } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -513,7 +554,7 @@ export class MCPServer {
       };
     }
 
-    const relatedTopics = await this.wikipediaClient.getRelatedTopics(title, limit);
+    const relatedTopics = await client.getRelatedTopics(title, limit);
 
     return {
       content: [
@@ -530,6 +571,7 @@ export class MCPServer {
 
   private async handleSummarizeForQuery(args: any) {
     const { title, query, max_length = 250 } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim() || !query || !query.trim()) {
       return {
@@ -547,7 +589,7 @@ export class MCPServer {
       };
     }
 
-    const summary = await this.wikipediaClient.summarizeForQuery(title, query, max_length);
+    const summary = await client.summarizeForQuery(title, query, max_length);
 
     return {
       content: [
@@ -565,6 +607,7 @@ export class MCPServer {
 
   private async handleSummarizeSection(args: any) {
     const { title, section_title, max_length = 150 } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim() || !section_title || !section_title.trim()) {
       return {
@@ -582,7 +625,7 @@ export class MCPServer {
       };
     }
 
-    const summary = await this.wikipediaClient.summarizeSection(title, section_title, max_length);
+    const summary = await client.summarizeSection(title, section_title, max_length);
 
     return {
       content: [
@@ -600,6 +643,7 @@ export class MCPServer {
 
   private async handleExtractFacts(args: any) {
     const { title, topic_within_article, count = 5 } = args;
+    const client = this.getClient(args);
 
     if (!title || !title.trim()) {
       return {
@@ -608,7 +652,6 @@ export class MCPServer {
             type: 'text',
             text: JSON.stringify({
               title: title,
-              topic_within_article: topic_within_article,
               facts: [],
               error: 'Invalid title provided'
             }, null, 2)
@@ -617,7 +660,7 @@ export class MCPServer {
       };
     }
 
-    const facts = await this.wikipediaClient.extractFacts(title, topic_within_article, count);
+    const facts = await client.extractFacts(title, topic_within_article, count);
 
     return {
       content: [
@@ -634,9 +677,10 @@ export class MCPServer {
   }
 
   private async handleTestConnectivity(args: any) {
-    const diagnostics = await this.wikipediaClient.testConnectivity();
+    const client = this.getClient(args);
+    const diagnostics = await client.testConnectivity();
 
-    // Round response_time_ms for nicer output if present
+    // Round response_time_ms for nicer output
     if (diagnostics.status === 'success' && typeof diagnostics.response_time_ms === 'number') {
       diagnostics.response_time_ms = Math.round(diagnostics.response_time_ms * 1000) / 1000;
     }
@@ -670,11 +714,5 @@ export class MCPServer {
         }
       ]
     };
-  }
-
-  // For stdio transport (if needed for local development)
-  async runStdio() {
-    console.error('Wikipedia MCP Server started with stdio transport');
-    console.error('Note: For Vercel deployment, use HTTP transport via the Express server');
   }
 }
