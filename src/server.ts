@@ -17,11 +17,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Initialize Wikipedia client with environment variables
+// CRITICAL FOR AI FUNCTION CALLING: These environment variables allow AI assistants
+// to control which Wikipedia language edition to access
 const wikipediaClient = new WikipediaClient({
-  language: process.env.WIKIPEDIA_LANGUAGE || 'en',
-  country: process.env.WIKIPEDIA_COUNTRY,
-  enableCache: process.env.ENABLE_CACHE === 'true',
-  accessToken: process.env.WIKIPEDIA_ACCESS_TOKEN
+  language: process.env.WIKIPEDIA_LANGUAGE || 'en',  // AI sets this: en, ja, zh-hans, etc.
+  country: process.env.WIKIPEDIA_COUNTRY,           // AI-friendly alternative: US, JP, CN, TW, etc.
+  enableCache: process.env.ENABLE_CACHE === 'true', // Enable for better AI performance
+  accessToken: process.env.WIKIPEDIA_ACCESS_TOKEN   // For high-volume AI usage
 });
 
 // Health check endpoint

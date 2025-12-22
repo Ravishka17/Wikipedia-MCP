@@ -33,15 +33,17 @@ vercel
 # Or use the Vercel button above
 ```
 
-### 2. Environment Variables
+### 2. Environment Variables for AI Language Selection
 
-Configure your deployment with these environment variables:
+**Critical for AI Function Calling**: These environment variables allow AI assistants to control which Wikipedia language edition to access:
 
 ```env
 # Wikipedia Language (default: en)
+# AI can set this to: en, ja, es, de, fr, zh-hans, zh-tw, ru, ar, it, etc.
 WIKIPEDIA_LANGUAGE=en
 
-# Country/Locale for language mapping (optional)
+# Country/Locale for language mapping (AI-friendly alternative)
+# AI can use: US, CN, TW, Japan, Germany, France, etc.
 WIKIPEDIA_COUNTRY=US
 
 # Enable caching for better performance
@@ -53,6 +55,12 @@ WIKIPEDIA_ACCESS_TOKEN=your_token_here
 # Server port (Vercel will override)
 PORT=8000
 ```
+
+**AI Usage Examples:**
+- Set `WIKIPEDIA_LANGUAGE=ja` for Japanese Wikipedia
+- Set `WIKIPEDIA_COUNTRY=JP` for Japanese Wikipedia (country code)
+- Set `WIKIPEDIA_LANGUAGE=zh-hans` for Simplified Chinese
+- Set `WIKIPEDIA_COUNTRY=TW` for Traditional Chinese (Taiwan)
 
 ### 3. Test Your Deployment
 
@@ -222,7 +230,36 @@ POST /tools/{toolName}
 
 ### MCP Protocol Usage
 
-For AI assistants that support MCP, configure with:
+#### For AI Assistants with Environment Variable Support
+
+Configure the MCP server with environment variables to control Wikipedia language:
+
+```json
+{
+  "mcpServers": {
+    "wikipedia-en": {
+      "command": "https://your-app.vercel.app",
+      "env": {
+        "WIKIPEDIA_LANGUAGE": "en"
+      }
+    },
+    "wikipedia-ja": {
+      "command": "https://your-app.vercel.app", 
+      "env": {
+        "WIKIPEDIA_LANGUAGE": "ja"
+      }
+    },
+    "wikipedia-zh-tw": {
+      "command": "https://your-app.vercel.app",
+      "env": {
+        "WIKIPEDIA_COUNTRY": "TW"
+      }
+    }
+  }
+}
+```
+
+#### For AI Assistants with HTTP Transport
 
 ```json
 {
@@ -237,42 +274,94 @@ For AI assistants that support MCP, configure with:
 }
 ```
 
-## Multi-language Support
+#### Language Selection via Dynamic Configuration
 
-The server supports 50+ languages and 140+ country variants:
+AI assistants can control language by setting environment variables at deployment time:
 
-### By Country Code
 ```bash
-# English (United States)
-wikipedia-mcp --country US
+# Deploy with Japanese Wikipedia
+vercel env add WIKIPEDIA_LANGUAGE
+# Enter: ja
 
-# Chinese Simplified (China)
-wikipedia-mcp --country CN
+# Deploy with Chinese (Traditional) for Taiwan
+vercel env add WIKIPEDIA_COUNTRY  
+# Enter: TW
 
-# Chinese Traditional (Taiwan)
-wikipedia-mcp --country TW
-
-# Japanese
-wikipedia-mcp --country Japan
+# Deploy with multiple language versions
+vercel env add WIKIPEDIA_LANGUAGE
+# Enter: es
 ```
 
-### By Language Code
+## Multi-language Support for AI Function Calling
+
+The server supports 50+ languages and 140+ country variants, **perfectly designed for AI assistants to choose Wikipedia editions dynamically**.
+
+### Environment Variable Configuration for AI
+
+**For AI assistants using MCP, set these environment variables to control Wikipedia language:**
+
+```env
+# Language codes (most common)
+WIKIPEDIA_LANGUAGE=en     # English
+WIKIPEDIA_LANGUAGE=ja     # Japanese  
+WIKIPEDIA_LANGUAGE=zh-hans # Chinese Simplified
+WIKIPEDIA_LANGUAGE=zh-tw  # Chinese Traditional (Taiwan)
+WIKIPEDIA_LANGUAGE=de     # German
+WIKIPEDIA_LANGUAGE=fr     # French
+WIKIPEDIA_LANGUAGE=es     # Spanish
+WIKIPEDIA_LANGUAGE=ru     # Russian
+WIKIPEDIA_LANGUAGE=ar     # Arabic
+
+# Country codes (AI-friendly alternative)
+WIKIPEDIA_COUNTRY=US      # English (United States)
+WIKIPEDIA_COUNTRY=JP      # Japanese
+WIKIPEDIA_COUNTRY=CN      # Chinese Simplified (China)
+WIKIPEDIA_COUNTRY=TW      # Chinese Traditional (Taiwan)
+WIKIPEDIA_COUNTRY=DE      # German
+WIKIPEDIA_COUNTRY=FR      # French
+WIKIPEDIA_COUNTRY=ES      # Spanish
+WIKIPEDIA_COUNTRY=RU      # Russian
+WIKIPEDIA_COUNTRY=SA      # Arabic
+```
+
+### Dynamic Language Switching for AI
+
+AI assistants can deploy multiple instances with different languages:
+
 ```bash
-# English
-wikipedia-mcp --language en
+# Deploy English Wikipedia version
+vercel env add WIKIPEDIA_LANGUAGE
+# Enter: en
 
-# Japanese
-wikipedia-mcp --language ja
+# Deploy Japanese Wikipedia version  
+vercel env add WIKIPEDIA_LANGUAGE
+# Enter: ja
 
-# Chinese Simplified
-wikipedia-mcp --language zh-hans
+# Deploy Chinese (Traditional) version
+vercel env add WIKIPEDIA_COUNTRY
+# Enter: TW
+```
 
-# Chinese Traditional (Taiwan)
-wikipedia-mcp --language zh-tw
+Then configure AI assistant MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "wikipedia-english": {
+      "command": "https://english-wikipedia.vercel.app"
+    },
+    "wikipedia-japanese": {
+      "command": "https://japanese-wikipedia.vercel.app"
+    },
+    "wikipedia-chinese-tw": {
+      "command": "https://chinese-tw-wikipedia.vercel.app"
+    }
+  }
+}
 ```
 
 ### Full Language List
-Access `/supported-countries` endpoint for complete list of supported countries and languages.
+Access `/supported-countries` endpoint for complete list of supported countries and languages, or use the MCP tool `list_supported_countries`.
 
 ## Architecture
 
@@ -326,15 +415,21 @@ src/
 └── server.ts             # Express server and API routes
 ```
 
-### Environment Variables
+### Environment Variables for AI Function Calling
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WIKIPEDIA_LANGUAGE` | Wikipedia language code | `en` |
-| `WIKIPEDIA_COUNTRY` | Country for language mapping | - |
-| `ENABLE_CACHE` | Enable response caching | `false` |
-| `WIKIPEDIA_ACCESS_TOKEN` | Wikipedia API access token | - |
-| `PORT` | Server port | `8000` |
+| Variable | Description | Default | AI Usage |
+|----------|-------------|---------|----------|
+| `WIKIPEDIA_LANGUAGE` | Wikipedia language code | `en` | **AI sets this to control language** |
+| `WIKIPEDIA_COUNTRY` | Country for language mapping | - | **AI-friendly alternative to language codes** |
+| `ENABLE_CACHE` | Enable response caching | `false` | Improves AI response times |
+| `WIKIPEDIA_ACCESS_TOKEN` | Wikipedia API access token | - | For high-volume AI usage |
+| `PORT` | Server port | `8000` | Vercel overrides automatically |
+
+**Critical for AI Function Calling:**
+- Set `WIKIPEDIA_LANGUAGE=ja` for Japanese Wikipedia
+- Set `WIKIPEDIA_COUNTRY=TW` for Traditional Chinese (Taiwan)
+- Set `WIKIPEDIA_LANGUAGE=zh-hans` for Simplified Chinese
+- AI assistants can dynamically choose Wikipedia editions via environment variables
 
 ## Deployment
 
