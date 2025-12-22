@@ -16,7 +16,7 @@ A high-performance Model Context Protocol (MCP) server that provides comprehensi
 - 🎯 **Fact Extraction**: Intelligent extraction of key facts from articles
 - ⚡ **Performance Optimized**: Caching, rate limiting, and optimized API calls
 - 🔧 **Developer Friendly**: Comprehensive API and CLI tools
-- 🚀 **Vercel Ready**: Optimized for serverless deployment with SSE support
+- 🚀 **Vercel Ready**: Optimized for serverless deployment with HTTP transport support
 
 ## Quick Start
 
@@ -35,25 +35,29 @@ vercel
 
 ### 2. Connect Your AI Assistant
 
-The server uses Server-Sent Events (SSE) for MCP communication. Configure your AI assistant (like Claude Desktop) to connect to your Vercel deployment:
+**Important**: Vercel's serverless platform does not support Server-Sent Events (SSE) due to its stateless architecture. Use **HTTP Transport** instead.
 
-**SSE Endpoint**: `https://your-app.vercel.app/sse`
+**HTTP Endpoint**: `https://your-app.vercel.app/mcp`
+
+#### Claude Desktop Configuration
 
 ```json
 {
   "mcpServers": {
     "wikipedia": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sse-client",
-        "--url",
-        "https://your-app.vercel.app/sse"
-      ]
+      "type": "http",
+      "url": "https://your-app.vercel.app/mcp",
+      "transport": "http"
     }
   }
 }
 ```
+
+#### For Other MCP Clients
+
+Configure your client to connect via HTTP POST to the `/mcp` endpoint.
+
+**Note**: See [MCP_CONNECTION_GUIDE.md](./MCP_CONNECTION_GUIDE.md) for detailed connection instructions and troubleshooting.
 
 ### 3. Environment Variables (Optional)
 
@@ -74,8 +78,10 @@ WIKIPEDIA_LANGUAGE=en
 # Health check
 curl https://your-app.vercel.app/health
 
-# MCP server info
+# MCP server info (GET)
 curl https://your-app.vercel.app/mcp
+
+# Note: MCP communication uses POST to the same endpoint
 ```
 
 ## API Documentation

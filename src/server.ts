@@ -42,6 +42,10 @@ const mcpServer = new McpServer({
   version: '1.0.0'
 });
 
+// Simple in-memory store for session data (for serverless - wont persist between requests but works for single request flow)
+// For Vercel, we don't need persistent SSE connections, just direct HTTP transport
+const sessionStore = new Map<string, any>();
+
 // Helper to format tool results for SDK
 const formatToolResult = (result: any) => ({
   content: result.content.map((item: any) => ({
@@ -202,44 +206,14 @@ mcpServer.tool('list_supported_countries',
   }
 );
 
-// Map to store transports
-const transports = new Map<string, SSEServerTransport>();
-
-// SSE Endpoint
-app.get('/sse', async (req, res) => {
-  console.log('New SSE connection request');
-  const transport = new SSEServerTransport("/messages", res);
-  
-  // Store transport
-  const sessionId = (transport as any).sessionId;
-  transports.set(sessionId, transport);
-  
-  console.log(`SSE connection established: ${sessionId}`);
-  
-  // Remove on close
-  res.on('close', () => {
-    console.log(`SSE connection closed: ${sessionId}`);
-    transports.delete(sessionId);
-  });
-
-  await mcpServer.connect(transport);
-});
-
-// Messages Endpoint
+// Simple HTTP POST endpoint for MCP (works with Vercel serverless)
+// SSE is not supported on Vercel due to serverless architecture constraints
 app.post('/messages', async (req, res) => {
-  const sessionId = req.query.sessionId as string;
-  if (!sessionId) {
-    res.status(400).send("Missing sessionId");
-    return;
-  }
-  
-  const transport = transports.get(sessionId);
-  if (!transport) {
-    res.status(404).send("Session not found");
-    return;
-  }
-  
-  await transport.handlePostMessage(req, res);
+  console.log('MCP messages endpoint called');
+  res.status(200).json({ 
+    message: "Use POST /mcp for MCP protocol communication. SSE is not supported on Vercel.",
+    instruction: "Please connect to https://wikipedia-mcp-zeta.vercel.app/mcp using HTTP transport instead of SSE"
+  });
 });
 
 
@@ -250,6 +224,79 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'wikipedia-mcp-server'
   });
+});
+
+// MCP HTTP Transport Endpoint (POST for direct MCP communication)
+app.post('/mcp', async (req, res) => {
+  console.log('MCP HTTP transport request received');
+  
+  try {
+    // Handle MCP JSON-RPC requests directly
+    const requestData = req.body;
+    
+    // Log the incoming request for debugging
+    console.log('MCP Request:', JSON.stringify(requestData, null, 2));
+    
+    // Handle different types of MCP requests
+    if (requestData.method === 'initialize') {
+      // Return server capabilities
+      res.json({
+        jsonrpc: '2.0',
+        id: requestData.id,
+        result: {
+          capabilities: {
+            tools: {}
+          },
+          serverInfo: {
+            name: 'wikipedia-mcp-server',
+            version: '1.0.0'
+          }
+        }
+      });
+    } else if (requestData.method === 'tools/list') {
+      // List available tools
+      res.json({
+        jsonrpc: '2.0',
+        id: requestData.id,
+        result: {
+          tools: mcpHelper.getServerInfo().tools
+        }
+      });
+    } else if (requestData.method === 'tools/call') {
+      // Execute a tool
+      const { name, arguments: args } = requestData.params;
+      
+      // Use the existing tool logic
+      const result = await mcpHelper.executeTool(name, args);
+      
+      res.json({
+        jsonrpc: '2.0',
+        id: requestData.id,
+        result: formatToolResult(result)
+      });
+    } else {
+      // Handle other MCP methods or return error
+      res.status(400).json({
+        jsonrpc: '2.0',
+        id: requestData.id,
+        error: {
+          code: -32601,
+          message: 'Method not found'
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error handling MCP request:', error);
+    res.status(500).json({
+      jsonrpc: '2.0',
+      id: req.body?.id || null,
+      error: {
+        code: -32603,
+        message: 'Internal error',
+        data: error instanceof Error ? error.message : String(error)
+      }
+    });
+  }
 });
 
 // MCP Server Info endpoint (Legacy/Information)
