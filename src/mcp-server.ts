@@ -1,6 +1,3 @@
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WikipediaClient } from './wikipedia-client.js';
 import type { 
   SearchResult, 
@@ -10,8 +7,9 @@ import type {
 } from './types.js';
 
 export class MCPServer {
-  private server: Server;
   private wikipediaClient: WikipediaClient;
+  private serverName: string;
+  private version: string;
 
   constructor(options: {
     language?: string;
@@ -20,280 +18,273 @@ export class MCPServer {
     accessToken?: string;
   } = {}) {
     this.wikipediaClient = new WikipediaClient(options);
-
-    this.server = new Server(
-      {
-        name: 'wikipedia-mcp-server',
-        version: '1.0.0',
-        description: 'Wikipedia MCP Server for AI assistants',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    this.setupTools();
+    this.serverName = 'wikipedia-mcp-server';
+    this.version = '1.0.0';
   }
 
-  private setupTools() {
-    // List all available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: 'search_wikipedia',
-          description: 'Search Wikipedia for articles matching a query',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'The search term to look up on Wikipedia'
-              },
-              limit: {
-                type: 'number',
-                description: 'Maximum number of results to return (1-500)',
-                default: 10,
-                minimum: 1,
-                maximum: 500
-              }
-            },
-            required: ['query']
-          }
-        },
-        {
-          name: 'get_article',
-          description: 'Get the full content of a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'get_summary',
-          description: 'Get a summary of a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'get_sections',
-          description: 'Get the sections of a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'get_links',
-          description: 'Get the links contained within a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'get_coordinates',
-          description: 'Get the coordinates of a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'get_related_topics',
-          description: 'Get topics related to a Wikipedia article based on links and categories',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              },
-              limit: {
-                type: 'number',
-                description: 'Maximum number of related topics',
-                default: 10,
-                minimum: 1,
-                maximum: 50
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'summarize_article_for_query',
-          description: 'Get a summary of a Wikipedia article tailored to a specific query',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              },
-              query: {
-                type: 'string',
-                description: 'The query to focus the summary on'
-              },
-              max_length: {
-                type: 'number',
-                description: 'Maximum length of the summary',
-                default: 250,
-                minimum: 50,
-                maximum: 1000
-              }
-            },
-            required: ['title', 'query']
-          }
-        },
-        {
-          name: 'summarize_article_section',
-          description: 'Get a summary of a specific section of a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              },
-              section_title: {
-                type: 'string',
-                description: 'The title of the section to summarize'
-              },
-              max_length: {
-                type: 'number',
-                description: 'Maximum length of the summary',
-                default: 150,
-                minimum: 50,
-                maximum: 500
-              }
-            },
-            required: ['title', 'section_title']
-          }
-        },
-        {
-          name: 'extract_key_facts',
-          description: 'Extract key facts from a Wikipedia article',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              title: {
-                type: 'string',
-                description: 'The title of the Wikipedia article'
-              },
-              topic_within_article: {
-                type: 'string',
-                description: 'A specific topic within the article to focus fact extraction'
-              },
-              count: {
-                type: 'number',
-                description: 'Number of key facts to extract',
-                default: 5,
-                minimum: 1,
-                maximum: 20
-              }
-            },
-            required: ['title']
-          }
-        },
-        {
-          name: 'test_wikipedia_connectivity',
-          description: 'Provide diagnostics for Wikipedia API connectivity',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-            required: []
-          }
-        },
-        {
-          name: 'list_supported_countries',
-          description: 'List all supported country/locale codes',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-            required: []
-          }
-        }
-      ]
-    }));
+  // Get server information for MCP protocol
+  getServerInfo() {
+    return {
+      name: this.serverName,
+      version: this.version,
+      description: 'Wikipedia MCP Server for AI assistants',
+      protocolVersion: '2024-11-05',
+      tools: this.getToolsList()
+    };
+  }
 
-    // Handle tool execution
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      try {
-        const { name, arguments: args } = request.params;
-
-        switch (name) {
-          case 'search_wikipedia':
-            return await this.handleSearchWikipedia(args);
-          case 'get_article':
-            return await this.handleGetArticle(args);
-          case 'get_summary':
-            return await this.handleGetSummary(args);
-          case 'get_sections':
-            return await this.handleGetSections(args);
-          case 'get_links':
-            return await this.handleGetLinks(args);
-          case 'get_coordinates':
-            return await this.handleGetCoordinates(args);
-          case 'get_related_topics':
-            return await this.handleGetRelatedTopics(args);
-          case 'summarize_article_for_query':
-            return await this.handleSummarizeForQuery(args);
-          case 'summarize_article_section':
-            return await this.handleSummarizeSection(args);
-          case 'extract_key_facts':
-            return await this.handleExtractFacts(args);
-          case 'test_wikipedia_connectivity':
-            return await this.handleTestConnectivity(args);
-          case 'list_supported_countries':
-            return await this.handleListCountries(args);
-          default:
-            throw new Error(`Unknown tool: ${name}`);
-        }
-      } catch (error: any) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error executing tool ${request.params.name}: ${error.message}`
+  private getToolsList() {
+    return [
+      {
+        name: 'search_wikipedia',
+        description: 'Search Wikipedia for articles matching a query',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The search term to look up on Wikipedia'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return (1-500)',
+              default: 10,
+              minimum: 1,
+              maximum: 500
             }
-          ],
-          isError: true
-        };
+          },
+          required: ['query']
+        }
+      },
+      {
+        name: 'get_article',
+        description: 'Get the full content of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_summary',
+        description: 'Get a summary of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_sections',
+        description: 'Get the sections of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_links',
+        description: 'Get the links contained within a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_coordinates',
+        description: 'Get the coordinates of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_related_topics',
+        description: 'Get topics related to a Wikipedia article based on links and categories',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of related topics',
+              default: 10,
+              minimum: 1,
+              maximum: 50
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'summarize_article_for_query',
+        description: 'Get a summary of a Wikipedia article tailored to a specific query',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            query: {
+              type: 'string',
+              description: 'The query to focus the summary on'
+            },
+            max_length: {
+              type: 'number',
+              description: 'Maximum length of the summary',
+              default: 250,
+              minimum: 50,
+              maximum: 1000
+            }
+          },
+          required: ['title', 'query']
+        }
+      },
+      {
+        name: 'summarize_article_section',
+        description: 'Get a summary of a specific section of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            section_title: {
+              type: 'string',
+              description: 'The title of the section to summarize'
+            },
+            max_length: {
+              type: 'number',
+              description: 'Maximum length of the summary',
+              default: 150,
+              minimum: 50,
+              maximum: 500
+            }
+          },
+          required: ['title', 'section_title']
+        }
+      },
+      {
+        name: 'extract_key_facts',
+        description: 'Extract key facts from a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            topic_within_article: {
+              type: 'string',
+              description: 'A specific topic within the article to focus fact extraction'
+            },
+            count: {
+              type: 'number',
+              description: 'Number of key facts to extract',
+              default: 5,
+              minimum: 1,
+              maximum: 20
+            }
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'test_wikipedia_connectivity',
+        description: 'Provide diagnostics for Wikipedia API connectivity',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      },
+      {
+        name: 'list_supported_countries',
+        description: 'List all supported country/locale codes',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
       }
-    });
+    ];
+  }
+
+  // Execute a tool with given arguments
+  async executeTool(toolName: string, args: any) {
+    try {
+      switch (toolName) {
+        case 'search_wikipedia':
+          return await this.handleSearchWikipedia(args);
+        case 'get_article':
+          return await this.handleGetArticle(args);
+        case 'get_summary':
+          return await this.handleGetSummary(args);
+        case 'get_sections':
+          return await this.handleGetSections(args);
+        case 'get_links':
+          return await this.handleGetLinks(args);
+        case 'get_coordinates':
+          return await this.handleGetCoordinates(args);
+        case 'get_related_topics':
+          return await this.handleGetRelatedTopics(args);
+        case 'summarize_article_for_query':
+          return await this.handleSummarizeForQuery(args);
+        case 'summarize_article_section':
+          return await this.handleSummarizeSection(args);
+        case 'extract_key_facts':
+          return await this.handleExtractFacts(args);
+        case 'test_wikipedia_connectivity':
+          return await this.handleTestConnectivity(args);
+        case 'list_supported_countries':
+          return await this.handleListCountries(args);
+        default:
+          throw new Error(`Unknown tool: ${toolName}`);
+      }
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error executing tool ${toolName}: ${error.message}`
+          }
+        ],
+        isError: true
+      };
+    }
   }
 
   private async handleSearchWikipedia(args: any) {
@@ -681,9 +672,9 @@ export class MCPServer {
     };
   }
 
-  async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('Wikipedia MCP Server started');
+  // For stdio transport (if needed for local development)
+  async runStdio() {
+    console.error('Wikipedia MCP Server started with stdio transport');
+    console.error('Note: For Vercel deployment, use HTTP transport via the Express server');
   }
 }

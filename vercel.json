@@ -3,14 +3,18 @@
   "name": "wikipedia-mcp-server",
   "builds": [
     {
-      "src": "api/**/*.ts",
+      "src": "dist/server.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/**/*.ts", 
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/api/index.js"
     }
   ],
   "env": {

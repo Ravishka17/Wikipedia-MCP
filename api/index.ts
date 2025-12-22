@@ -1,4 +1,4 @@
-import app from '../src/server';
+import app from '../dist/server.js';
 
 // Vercel serverless function handler
 export default app;
