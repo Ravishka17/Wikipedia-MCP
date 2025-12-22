@@ -2,6 +2,18 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/mcp",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/sse",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/messages",
+      "destination": "/api/index"
+    },
+    {
       "source": "/(.*)",
       "destination": "/api/index"
     }
