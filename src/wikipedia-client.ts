@@ -25,8 +25,7 @@ export class WikipediaClient {
     'IN': 'hi', 'India': 'hi', 'ID': 'id', 'Indonesia': 'id',
     'TH': 'th', 'Thailand': 'th', 'VI': 'vi', 'Vietnam': 'vi',
     'GR': 'el', 'Greece': 'el', 'HE': 'he', 'Hebrew': 'he',
-    'AR': 'ar', 'Arabic': 'ar', 'HI': 'hi', 'Hindi': 'hi',
-    'UK': 'en', 'UK': 'en', 'ENG': 'en', 'EN': 'en'
+    'HI': 'hi', 'Hindi': 'hi', 'ENG': 'en', 'EN': 'en'
   };
 
   constructor(options: {
@@ -85,7 +84,9 @@ export class WikipediaClient {
     // Simple cache size limit
     if (this.cache.size > 100) {
       const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
     }
   }
 

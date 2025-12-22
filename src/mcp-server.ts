@@ -310,7 +310,7 @@ export class MCPServer {
     const results = await this.wikipediaClient.search(query, { limit: validatedLimit });
     const status = results.length > 0 ? 'success' : 'no_results';
 
-    const response = {
+    const response: any = {
       query: query,
       results: results,
       status: status,
