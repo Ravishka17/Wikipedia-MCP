@@ -42,14 +42,13 @@ const mcpServer = new McpServer({
   version: '1.0.0'
 });
 
-// Simple in-memory store for session data (for serverless - wont persist between requests but works for single request flow)
-// For Vercel, we don't need persistent SSE connections, just direct HTTP transport
+// Simple in-memory store for session data
 const sessionStore = new Map<string, any>();
 
 // Helper to format tool results for SDK
 const formatToolResult = (result: any) => ({
   content: result.content.map((item: any) => ({
-    type: item.type as "text", // Cast strictly to "text" as most Wikipedia results are text
+    type: item.type as "text",
     text: item.text
   })),
   isError: result.isError ? true : undefined
@@ -206,16 +205,14 @@ mcpServer.tool('list_supported_countries',
   }
 );
 
-// Simple HTTP POST endpoint for MCP (works with Vercel serverless)
-// SSE is not supported on Vercel due to serverless architecture constraints
+// Legacy /messages endpoint
 app.post('/messages', async (req, res) => {
   console.log('MCP messages endpoint called');
   res.status(200).json({ 
     message: "Use POST /mcp for MCP protocol communication. SSE is not supported on Vercel.",
-    instruction: "Please connect to https://wikipedia-mcp-zeta.vercel.app/mcp using HTTP transport instead of SSE"
+    instruction: "Please connect using HTTP transport to the /mcp endpoint"
   });
 });
-
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -231,21 +228,24 @@ app.post('/mcp', async (req, res) => {
   console.log('MCP HTTP transport request received');
   
   try {
-    // Handle MCP JSON-RPC requests directly
     const requestData = req.body;
-    
-    // Log the incoming request for debugging
     console.log('MCP Request:', JSON.stringify(requestData, null, 2));
-    
-    // Handle different types of MCP requests
+
+    // ── Notifications: no "id" field, must return 200 with no body ──
+    // e.g. "notifications/initialized", "notifications/cancelled", etc.
+    if (!requestData.id) {
+      res.status(200).end();
+      return;
+    }
+
     if (requestData.method === 'initialize') {
-      // Echo back the client's protocolVersion (or fallback to our supported version)
+      // Echo back the client's requested protocolVersion (required by spec)
       const clientVersion = requestData.params?.protocolVersion || '2024-11-05';
       res.json({
         jsonrpc: '2.0',
         id: requestData.id,
         result: {
-          protocolVersion: clientVersion,   // ← THIS was missing
+          protocolVersion: clientVersion,
           capabilities: {
             tools: {}
           },
@@ -255,8 +255,12 @@ app.post('/mcp', async (req, res) => {
           }
         }
       });
+
+    } else if (requestData.method === 'ping') {
+      // Some clients send a ping after initialize
+      res.json({ jsonrpc: '2.0', id: requestData.id, result: {} });
+
     } else if (requestData.method === 'tools/list') {
-      // List available tools
       res.json({
         jsonrpc: '2.0',
         id: requestData.id,
@@ -264,32 +268,31 @@ app.post('/mcp', async (req, res) => {
           tools: mcpHelper.getServerInfo().tools
         }
       });
+
     } else if (requestData.method === 'tools/call') {
-      // Execute a tool
       const { name, arguments: args } = requestData.params;
-      
-      // Use the existing tool logic
       const result = await mcpHelper.executeTool(name, args);
-      
       res.json({
         jsonrpc: '2.0',
         id: requestData.id,
         result: formatToolResult(result)
       });
+
     } else {
-      // Handle other MCP methods or return error
-      res.status(400).json({
+      // Unknown method with an id — return JSON-RPC error (status 200, not 400)
+      res.status(200).json({
         jsonrpc: '2.0',
         id: requestData.id,
         error: {
           code: -32601,
-          message: 'Method not found'
+          message: `Method not found: ${requestData.method}`
         }
       });
     }
+
   } catch (error) {
     console.error('Error handling MCP request:', error);
-    res.status(500).json({
+    res.status(200).json({
       jsonrpc: '2.0',
       id: req.body?.id || null,
       error: {
@@ -301,50 +304,32 @@ app.post('/mcp', async (req, res) => {
   }
 });
 
-// MCP Server Info endpoint (Legacy/Information)
+// MCP Server Info endpoint (GET for info/debugging)
 app.get('/mcp', (req, res) => {
-  // Return the manual server info
   res.json(mcpHelper.getServerInfo());
 });
 
-// HTTP Resources (RESTful endpoints)
+// ── REST endpoints ────────────────────────────────────────────────────────────
 
 // Search Wikipedia
 app.get('/search/:query', async (req, res) => {
   try {
     const { query } = req.params;
     const { limit = 10 } = req.query;
-    
-    const results = await wikipediaClient.search(query, { 
-      limit: parseInt(limit as string) || 10 
-    });
-    
-    res.json({
-      query,
-      results,
-      count: results.length,
-      language: wikipediaClient.getLanguage()
-    });
+    const results = await wikipediaClient.search(query, { limit: parseInt(limit as string) || 10 });
+    res.json({ query, results, count: results.length, language: wikipediaClient.getLanguage() });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      query: req.params.query
-    });
+    res.status(500).json({ error: error.message, query: req.params.query });
   }
 });
 
 // Get article
 app.get('/article/:title', async (req, res) => {
   try {
-    const { title } = req.params;
-    const article = await wikipediaClient.getArticle(title);
+    const article = await wikipediaClient.getArticle(req.params.title);
     res.json(article);
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      exists: false
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, exists: false });
   }
 });
 
@@ -354,85 +339,50 @@ app.get('/summary/:title', async (req, res) => {
     const { title } = req.params;
     const summary = await wikipediaClient.getSummary(title);
     const isError = summary.startsWith('Error:');
-    
-    res.json({
-      title,
-      summary: isError ? null : summary,
-      error: isError ? summary : undefined
-    });
+    res.json({ title, summary: isError ? null : summary, error: isError ? summary : undefined });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      summary: null
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, summary: null });
   }
 });
 
 // Get sections
 app.get('/sections/:title', async (req, res) => {
   try {
-    const { title } = req.params;
-    const sections = await wikipediaClient.getSections(title);
-    res.json({ title, sections });
+    const sections = await wikipediaClient.getSections(req.params.title);
+    res.json({ title: req.params.title, sections });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      sections: []
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, sections: [] });
   }
 });
 
 // Get links
 app.get('/links/:title', async (req, res) => {
   try {
-    const { title } = req.params;
-    const links = await wikipediaClient.getLinks(title);
-    res.json({ title, links });
+    const links = await wikipediaClient.getLinks(req.params.title);
+    res.json({ title: req.params.title, links });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      links: []
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, links: [] });
   }
 });
 
 // Get coordinates
 app.get('/coordinates/:title', async (req, res) => {
   try {
-    const { title } = req.params;
-    const coordinates = await wikipediaClient.getCoordinates(title);
+    const coordinates = await wikipediaClient.getCoordinates(req.params.title);
     res.json(coordinates);
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      coordinates: [],
-      exists: false
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, coordinates: [], exists: false });
   }
 });
 
 // Get related topics
 app.get('/related/:title', async (req, res) => {
   try {
-    const { title } = req.params;
     const { limit = 10 } = req.query;
-    
-    const relatedTopics = await wikipediaClient.getRelatedTopics(
-      title, 
-      parseInt(limit as string) || 10
-    );
-    
-    res.json({ title, related_topics: relatedTopics });
+    const relatedTopics = await wikipediaClient.getRelatedTopics(req.params.title, parseInt(limit as string) || 10);
+    res.json({ title: req.params.title, related_topics: relatedTopics });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      related_topics: []
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, related_topics: [] });
   }
 });
 
@@ -441,25 +391,10 @@ app.get('/summary/:title/query/:query/length/:maxLength', async (req, res) => {
   try {
     const { title, query } = req.params;
     const { maxLength = 250 } = req.query;
-    
-    const summary = await wikipediaClient.summarizeForQuery(
-      title, 
-      query, 
-      parseInt(maxLength as string) || 250
-    );
-    
-    res.json({
-      title,
-      query,
-      summary
-    });
+    const summary = await wikipediaClient.summarizeForQuery(title, query, parseInt(maxLength as string) || 250);
+    res.json({ title, query, summary });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      query: req.params.query,
-      summary: null
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, query: req.params.query, summary: null });
   }
 });
 
@@ -468,25 +403,10 @@ app.get('/summary/:title/section/:section/length/:maxLength', async (req, res) =
   try {
     const { title, section } = req.params;
     const { maxLength = 150 } = req.query;
-    
-    const summary = await wikipediaClient.summarizeSection(
-      title, 
-      section, 
-      parseInt(maxLength as string) || 150
-    );
-    
-    res.json({
-      title,
-      section_title: section,
-      summary
-    });
+    const summary = await wikipediaClient.summarizeSection(title, section, parseInt(maxLength as string) || 150);
+    res.json({ title, section_title: section, summary });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      section_title: req.params.section,
-      summary: null
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, section_title: req.params.section, summary: null });
   }
 });
 
@@ -495,24 +415,10 @@ app.get('/facts/:title', async (req, res) => {
   try {
     const { title } = req.params;
     const { topic, count = 5 } = req.query;
-    
-    const facts = await wikipediaClient.extractFacts(
-      title, 
-      topic as string, 
-      parseInt(count as string) || 5
-    );
-    
-    res.json({
-      title,
-      topic_within_article: topic || null,
-      facts
-    });
+    const facts = await wikipediaClient.extractFacts(title, topic as string, parseInt(count as string) || 5);
+    res.json({ title, topic_within_article: topic || null, facts });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message,
-      title: req.params.title,
-      facts: []
-    });
+    res.status(500).json({ error: error.message, title: req.params.title, facts: [] });
   }
 });
 
@@ -520,19 +426,12 @@ app.get('/facts/:title', async (req, res) => {
 app.get('/test-connectivity', async (req, res) => {
   try {
     const diagnostics = await wikipediaClient.testConnectivity();
-    
-    // Round response_time_ms for nicer output
     if (diagnostics.status === 'success' && typeof diagnostics.response_time_ms === 'number') {
       diagnostics.response_time_ms = Math.round(diagnostics.response_time_ms * 1000) / 1000;
     }
-    
     res.json(diagnostics);
   } catch (error: any) {
-    res.status(500).json({
-      status: 'failed',
-      error: error.message,
-      response_time_ms: 0
-    });
+    res.status(500).json({ status: 'failed', error: error.message, response_time_ms: 0 });
   }
 });
 
@@ -540,7 +439,6 @@ app.get('/test-connectivity', async (req, res) => {
 app.get('/supported-countries', async (req, res) => {
   try {
     const countries = WikipediaClient.listSupportedCountries();
-    
     res.json({
       supported_countries: countries,
       usage_examples: [
@@ -551,9 +449,7 @@ app.get('/supported-countries', async (req, res) => {
       ]
     });
   } catch (error: any) {
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -561,32 +457,21 @@ app.get('/supported-countries', async (req, res) => {
 app.post('/tools/:toolName', async (req, res) => {
   try {
     const { toolName } = req.params;
-    const args = req.body;
-    
-    // Use mcpHelper to execute
-    const result = await mcpHelper.executeTool(toolName, args);
-    
-    // Check isError safely (using any cast if needed, but the object should be fine in runtime)
+    const result = await mcpHelper.executeTool(toolName, req.body);
     if ((result as any).isError) {
       res.status(500).json(result);
     } else {
       res.json(result);
     }
   } catch (error: any) {
-    res.status(500).json({
-      content: [{ type: 'text', text: `Error: ${error.message}` }],
-      isError: true
-    });
+    res.status(500).json({ content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true });
   }
 });
 
 // Error handling middleware
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Server error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: error.message
-  });
+  res.status(500).json({ error: 'Internal server error', message: error.message });
 });
 
 // 404 handler
@@ -597,9 +482,9 @@ app.use('*', (req, res) => {
     method: req.method,
     available_endpoints: [
       'GET /health',
-      'GET /sse',
-      'POST /messages',
       'GET /mcp',
+      'POST /mcp',
+      'POST /messages',
       'GET /search/:query',
       'GET /article/:title',
       'GET /summary/:title',
@@ -617,13 +502,12 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
+// Start server (local dev only)
 if (process.env.NODE_ENV !== 'production') {
   app.listen(port, () => {
     console.log(`Wikipedia MCP Server running on port ${port}`);
     console.log(`Health check: http://localhost:${port}/health`);
-    console.log(`MCP info: http://localhost:${port}/mcp`);
-    console.log(`SSE Endpoint: http://localhost:${port}/sse`);
+    console.log(`MCP endpoint: http://localhost:${port}/mcp`);
   });
 }
 
