@@ -8,9 +8,8 @@ export class WikipediaClient {
   private enableCache: boolean;
   private cache: Map<string, any> = new Map();
 
-  // ── ISO 3166-1 alpha-2 country codes → Wikipedia language code ───────────
-  // Covers every UN-recognised country plus common territories.
-  // Where a country has multiple official languages, the majority/official one is used.
+  // ── ISO 3166-1 alpha-2 country codes + common names → Wikipedia language ─
+  // No duplicate keys — language codes are handled separately via VALID_LANGUAGE_CODES.
   public static readonly COUNTRY_TO_LANGUAGE: Record<string, string> = {
     // A
     'AD': 'ca',  'Andorra': 'ca',
@@ -48,7 +47,7 @@ export class WikipediaClient {
     'CF': 'fr',  'Central African Republic': 'fr',
     'CG': 'fr',  'Republic of the Congo': 'fr',
     'CH': 'de',  'Switzerland': 'de',
-    'CI': 'fr',  "Côte d'Ivoire": 'fr',  'Ivory Coast': 'fr',
+    'CI': 'fr',  "Cote d'Ivoire": 'fr',  'Ivory Coast': 'fr',
     'CL': 'es',  'Chile': 'es',
     'CM': 'fr',  'Cameroon': 'fr',
     'CN': 'zh',  'China': 'zh',
@@ -193,7 +192,7 @@ export class WikipediaClient {
     'SO': 'so',  'Somalia': 'so',
     'SR': 'nl',  'Suriname': 'nl',
     'SS': 'en',  'South Sudan': 'en',
-    'ST': 'pt',  'São Tomé and Príncipe': 'pt',
+    'ST': 'pt',  'Sao Tome and Principe': 'pt',
     'SV': 'es',  'El Salvador': 'es',
     'SY': 'ar',  'Syria': 'ar',
     'SZ': 'en',  'Eswatini': 'en',  'Swaziland': 'en',
@@ -206,7 +205,7 @@ export class WikipediaClient {
     'TM': 'tk',  'Turkmenistan': 'tk',
     'TN': 'ar',  'Tunisia': 'ar',
     'TO': 'en',  'Tonga': 'en',
-    'TR': 'tr',  'Turkey': 'tr',  'Türkiye': 'tr',
+    'TR': 'tr',  'Turkey': 'tr',  'Turkiye': 'tr',
     'TT': 'en',  'Trinidad and Tobago': 'en',
     'TV': 'en',  'Tuvalu': 'en',
     'TW': 'zh-tw', 'Taiwan': 'zh-tw',
@@ -232,58 +231,15 @@ export class WikipediaClient {
     'ZM': 'en',  'Zambia': 'en',
     'ZW': 'en',  'Zimbabwe': 'en',
 
-    // ── Special territories & common aliases ───────────────────────────────
+    // ── Special territories ────────────────────────────────────────────────
     'HK': 'zh-yue', 'Hong Kong': 'zh-yue',
     'MO': 'zh',     'Macao': 'zh',  'Macau': 'zh',
     'PS': 'ar',     'Palestine': 'ar',
     'XK': 'sq',     'Kosovo': 'sq',
-
-    // ── Direct language-code pass-throughs (for convenience) ───────────────
-    // Major Wikipedia languages a user might pass directly as "country"
-    'EN': 'en',   'DE': 'de',   'FR': 'fr',   'ES': 'es',
-    'PT': 'pt',   'RU': 'ru',   'JA': 'ja',   'ZH': 'zh',
-    'AR': 'ar',   'IT': 'it',   'KO': 'ko',   'NL': 'nl',
-    'PL': 'pl',   'SV': 'sv',   'UK': 'uk',   'VI': 'vi',
-    'FA': 'fa',   'TR': 'tr',   'HI': 'hi',   'ID': 'id',
-    'CS': 'cs',   'HU': 'hu',   'RO': 'ro',   'FI': 'fi',
-    'DA': 'da',   'NO': 'no',   'SK': 'sk',   'EL': 'el',
-    'HE': 'he',   'BG': 'bg',   'HR': 'hr',   'SL': 'sl',
-    'SR': 'sr',   'LT': 'lt',   'LV': 'lv',   'ET': 'et',
-    'SQ': 'sq',   'MK': 'mk',   'BS': 'bs',   'BE': 'be',
-    'KA': 'ka',   'HY': 'hy',   'AZ': 'az',   'KK': 'kk',
-    'UZ': 'uz',   'TK': 'tk',   'KY': 'ky',   'TG': 'tg',
-    'MN': 'mn',   'MY': 'my',   'KM': 'km',   'LO': 'lo',
-    'SI': 'si',   'NE': 'ne',   'UR': 'ur',   'BN': 'bn',
-    'TA': 'ta',   'TE': 'te',   'ML': 'ml',   'KN': 'kn',
-    'MS': 'ms',   'TL': 'tl',   'SW': 'sw',   'AF': 'af',
-    'IS': 'is',   'MT': 'mt',   'GL': 'gl',   'EU': 'eu',
-    'CA': 'ca',   'OC': 'oc',   'CY': 'cy',   'GA': 'ga',
-    'EO': 'eo',   'LA': 'la',   'VO': 'vo',   'IO': 'io',
-    'IA': 'ia',   'IE': 'ie',   'AN': 'an',   'AST': 'ast',
-    'SCN': 'scn', 'NAP': 'nap', 'VEC': 'vec', 'LMO': 'lmo',
-    'PMN': 'pms', 'FUR': 'fur', 'LIJ': 'lij', 'RUE': 'rue',
-    'WA': 'wa',   'LI': 'li',   'ZEA': 'zea', 'VLS': 'vls',
-    'FY': 'fy',   'NDS': 'nds', 'BAR': 'bar', 'ALS': 'als',
-    'KSH': 'ksh', 'PDC': 'pdc', 'LB': 'lb',
-    'MR': 'mr',   'GU': 'gu',   'PA': 'pa',   'OR': 'or',
-    'AS': 'as',   'SA': 'sa',   'HIF': 'hif', 'BPY': 'bpy',
-    'DZ': 'dz',   'BO': 'bo',   'WUU': 'wuu', 'YUE': 'yue',
-    'MIN': 'min', 'CEB': 'ceb', 'WAR': 'war', 'ILO': 'ilo',
-    'BCL': 'bcl', 'PNB': 'pnb', 'SDC': 'sdc', 'HBM': 'hbm',
-    'TT': 'tt',   'BA': 'ba',   'CV': 'cv',   'SAH': 'sah',
-    'MHR': 'mhr', 'MRJ': 'mrj', 'UDM': 'udm', 'KV': 'kv',
-    'KOI': 'koi', 'ACE': 'ace', 'BJN': 'bjn', 'BUG': 'bug',
-    'MAP_BMS': 'map-bms', 'JV': 'jv',   'SU': 'su',
-    'AMI': 'ami', 'TRV': 'trv', 'ZH_YUE': 'zh-yue',
-    'ZH_HANS': 'zh-hans', 'ZH_HANT': 'zh-hant',
-    'ZH_TW': 'zh-tw',    'ZH_HK': 'zh-hk',
-    'PT_BR': 'pt',        'ES_MX': 'es',
-    'NB': 'nb',   'NN': 'nn',   'SIMPLE': 'simple',
-    'KO': 'ko',
   };
 
-  // ── Full set of valid Wikipedia subdomain language codes ─────────────────
-  // Used to validate direct language= arguments (pass-through without mapping)
+  // ── Every active Wikipedia subdomain language code ───────────────────────
+  // Used to validate and accept direct language= values.
   private static readonly VALID_LANGUAGE_CODES = new Set([
     'ab','ace','ady','af','ak','als','alt','am','ami','an','ang','ar','arc',
     'ary','arz','as','ast','atj','av','avk','awa','ay','az',
@@ -315,10 +271,9 @@ export class WikipediaClient {
     'rm','rmy','rn','ro','roa-rup','roa-tara','ru','rue','rw',
     'sa','sah','sat','sc','scn','sco','sd','se','sg','sh','shi','shn','si',
     'simple','sk','skr','sl','sm','smn','sn','so','sq','sr','srn','ss','st',
-    'stq','su','sv','sw','szl',
-    'szy','ta','tay','tcy','te','tet','tg','th','ti','tk','tl','tn','to',
-    'tpi','tr','trv','ts','tt','tum','tw','ty',
-    'tyv',
+    'stq','su','sv','sw','szl','szy',
+    'ta','tay','tcy','te','tet','tg','th','ti','tk','tl','tn','to',
+    'tpi','tr','trv','ts','tt','tum','tw','ty','tyv',
     'udm','ug','uk','ur','uz',
     've','vec','vep','vi','vls','vo',
     'wa','war','wo','wuu',
@@ -334,12 +289,12 @@ export class WikipediaClient {
     enableCache?: boolean;
     accessToken?: string;
   } = {}) {
-    this.language = options.language || 'en';
+    this.language = 'en';
     this.accessToken = options.accessToken;
     this.enableCache = options.enableCache || false;
 
     if (options.country) {
-      // Try exact match first, then uppercase, then title-case
+      // Try exact → uppercase → title-case in the country map
       const resolved =
         WikipediaClient.COUNTRY_TO_LANGUAGE[options.country] ||
         WikipediaClient.COUNTRY_TO_LANGUAGE[options.country.toUpperCase()] ||
@@ -350,7 +305,7 @@ export class WikipediaClient {
       if (resolved) {
         this.language = resolved;
       } else {
-        // Last resort: treat the value as a raw language code if it looks valid
+        // Fall back: treat the value as a raw language code
         const lc = options.country.toLowerCase().replace(/_/g, '-');
         if (WikipediaClient.VALID_LANGUAGE_CODES.has(lc)) {
           this.language = lc;
@@ -362,14 +317,10 @@ export class WikipediaClient {
         }
       }
     } else if (options.language) {
-      // Validate the language code
       const lc = options.language.toLowerCase().replace(/_/g, '-');
-      if (WikipediaClient.VALID_LANGUAGE_CODES.has(lc)) {
-        this.language = lc;
-      } else {
-        // Accept it anyway — Wikipedia may have added new editions since this list was built
-        this.language = options.language;
-      }
+      // Accept valid codes strictly; pass through unknown ones anyway
+      // (Wikipedia may have added editions after this list was compiled)
+      this.language = WikipediaClient.VALID_LANGUAGE_CODES.has(lc) ? lc : options.language;
     }
 
     this.baseUrl = `https://${this.language}.wikipedia.org/w/api.php`;
@@ -502,8 +453,12 @@ export class WikipediaClient {
   async getSections(title: string): Promise<ArticleSection[]> {
     if (!title?.trim()) return [];
     try {
-      const data = await this.makeRequest({ action: 'parse', page: title, prop: 'sections', formatversion: 2 });
-      return (data.parse?.sections ?? []).map((s: any) => ({ title: s.line, content: '', level: s.level }));
+      const data = await this.makeRequest({
+        action: 'parse', page: title, prop: 'sections', formatversion: 2
+      });
+      return (data.parse?.sections ?? []).map((s: any) => ({
+        title: s.line, content: '', level: s.level
+      }));
     } catch (error: any) {
       console.error('Error getting sections:', error.message);
       return [];
@@ -537,7 +492,8 @@ export class WikipediaClient {
           title: page.title,
           pageid: page.pageid,
           coordinates: (page.coordinates ?? []).map((c: any) => ({
-            latitude: c.lat, longitude: c.lon, globe: c.globe || 'earth', type: c.type, dim: c.dim, name: c.name
+            latitude: c.lat, longitude: c.lon,
+            globe: c.globe || 'earth', type: c.type, dim: c.dim, name: c.name
           })),
           exists: true
         };
@@ -581,7 +537,7 @@ export class WikipediaClient {
       const relevant = article.text.split(/[.!?]+/).filter(s =>
         queryWords.some(w => s.toLowerCase().includes(w))
       );
-      const summary = (relevant.length ? relevant.join('. ').trim() : await this.getSummary(title));
+      const summary = relevant.length ? relevant.join('. ').trim() : await this.getSummary(title);
       return summary.length > maxLength ? summary.substring(0, maxLength) + '...' : summary;
     } catch (error: any) {
       return `Error: ${error.message}`;
@@ -608,7 +564,9 @@ export class WikipediaClient {
         }
       }
       if (!sectionContent.trim()) return 'Error: Section not found';
-      return sectionContent.length > maxLength ? sectionContent.substring(0, maxLength) + '...' : sectionContent.trim();
+      return sectionContent.length > maxLength
+        ? sectionContent.substring(0, maxLength) + '...'
+        : sectionContent.trim();
     } catch (error: any) {
       return `Error: ${error.message}`;
     }
@@ -645,7 +603,9 @@ export class WikipediaClient {
   async testConnectivity(): Promise<any> {
     const start = Date.now();
     try {
-      const data = await this.makeRequest({ action: 'query', meta: 'siteinfo', siprop: 'general', format: 'json' });
+      const data = await this.makeRequest({
+        action: 'query', meta: 'siteinfo', siprop: 'general', format: 'json'
+      });
       const ms = Date.now() - start;
       if (data.query?.general) {
         return {
@@ -669,20 +629,19 @@ export class WikipediaClient {
   }
 
   static listSupportedCountries(): Record<string, any> {
-    // Group country codes / names by their target language
+    // Group country/name keys by their language
     const byLanguage: Record<string, string[]> = {};
-    for (const [country, language] of Object.entries(WikipediaClient.COUNTRY_TO_LANGUAGE)) {
-      (byLanguage[language] ??= []).push(country);
+    for (const [key, lang] of Object.entries(WikipediaClient.COUNTRY_TO_LANGUAGE)) {
+      (byLanguage[lang] ??= []).push(key);
     }
-
-    // Also surface every valid Wikipedia language code on its own
-    const allLanguages: Record<string, any> = {};
+    // Return every valid Wikipedia language with its URL and matching country codes
+    const result: Record<string, any> = {};
     for (const lang of WikipediaClient.VALID_LANGUAGE_CODES) {
-      allLanguages[lang] = {
+      result[lang] = {
         wikipedia_url: `https://${lang}.wikipedia.org`,
         country_codes: byLanguage[lang] ?? []
       };
     }
-    return allLanguages;
+    return result;
   }
 }
