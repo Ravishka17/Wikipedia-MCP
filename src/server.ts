@@ -239,11 +239,13 @@ app.post('/mcp', async (req, res) => {
     
     // Handle different types of MCP requests
     if (requestData.method === 'initialize') {
-      // Return server capabilities
+      // Echo back the client's protocolVersion (or fallback to our supported version)
+      const clientVersion = requestData.params?.protocolVersion || '2024-11-05';
       res.json({
         jsonrpc: '2.0',
         id: requestData.id,
         result: {
+          protocolVersion: clientVersion,   // ← THIS was missing
           capabilities: {
             tools: {}
           },
