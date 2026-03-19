@@ -231,10 +231,9 @@ app.post('/mcp', async (req, res) => {
     const requestData = req.body;
     console.log('MCP Request:', JSON.stringify(requestData, null, 2));
 
-    // ── Notifications: no "id" field, must return 200 with no body ──
-    // e.g. "notifications/initialized", "notifications/cancelled", etc.
-    if (!requestData.id) {
-      res.status(200).end();
+    // Notifications have no "id" — return 202 Accepted with no body
+    if (requestData.id === undefined || requestData.id === null) {
+      res.status(202).end();
       return;
     }
 
@@ -304,9 +303,14 @@ app.post('/mcp', async (req, res) => {
   }
 });
 
-// MCP Server Info endpoint (GET for info/debugging)
+// GET /mcp — Streamable HTTP spec: return 405 to signal SSE not supported
+// This tells clients to use HTTP transport (POST only), not SSE
 app.get('/mcp', (req, res) => {
-  res.json(mcpHelper.getServerInfo());
+  res.setHeader('Content-Type', 'application/json');
+  res.status(405).json({
+    error: 'Method Not Allowed',
+    message: 'This server uses Streamable HTTP transport. Use POST /mcp for MCP communication.'
+  });
 });
 
 // ── REST endpoints ────────────────────────────────────────────────────────────
