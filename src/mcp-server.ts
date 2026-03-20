@@ -126,6 +126,8 @@ For general topics, just use the topic name as it would appear as a Wikipedia ar
 - ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
 - ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
 
+For researching a topic across multiple languages at once, use multi_search_wikipedia instead of calling search_wikipedia multiple times.
+
 Now search for "${topic}" using the correct short title format — no temporal words, no question words, English only.`
               }
             }
@@ -144,8 +146,9 @@ Now search for "${topic}" using the correct short title format — no temporal w
                 text: `# Wikipedia MCP Usage Guide
 
 ## Available Tools
-- **search_wikipedia** — Search for articles by keyword
-- **get_article** — Retrieve article text. Use \`full: true\` to get the complete uncompressed wikitext of the entire article including all sections. Without it, returns a plain text extract.
+- **search_wikipedia** — Search for articles by keyword in a single language
+- **multi_search_wikipedia** — Search multiple queries across multiple languages in one parallel call. Use this instead of calling search_wikipedia repeatedly.
+- **get_article** — Retrieve article text. Pass \`full: true\` to get the complete uncompressed wikitext of the entire article. Without it, returns a plain text extract.
 - **get_summary** — Get only the introductory summary of an article
 - **get_sections** — List the sections of an article
 - **get_links** — Get all internal links within an article
@@ -180,14 +183,31 @@ For general topics:
 - ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
 - ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
 
+## When to use multi_search_wikipedia
+Use multi_search_wikipedia instead of calling search_wikipedia multiple times when you need to:
+- Search the same topic across multiple languages at once
+- Search several different topics in one call
+- Research a subject across multiple Wikipedia language editions efficiently
+
+Example — searching "President of Sri Lanka" in English, Sinhala, and Tamil simultaneously:
+\`\`\`
+multi_search_wikipedia({
+  searches: [
+    { query: "President of Sri Lanka", language: "en" },
+    { query: "President of Sri Lanka", country: "LK" },
+    { query: "President of Sri Lanka", language: "ta" }
+  ]
+})
+\`\`\`
+
 ## When to use get_article with full: true
-By default, **get_article** returns a plain text extract of the article which may not include every section. Pass \`full: true\` when you need:
+By default, get_article returns a plain text extract which may not include every section. Pass \`full: true\` when you need:
 - The complete article with every section and subsection
 - Raw wikitext including tables, infoboxes, and references
-- Deep research where partial content is not sufficient
+- Deep research where a partial extract is not sufficient
 
 ## Recommended Workflow
-1. Use **search_wikipedia** to find the right article title
+1. Use **search_wikipedia** (or **multi_search_wikipedia** for multiple languages) to find the right article title
 2. Use **get_summary** for a quick overview
 3. Use **get_sections** to understand the article structure
 4. Use **summarize_article_for_query** or **summarize_article_section** for targeted information
@@ -230,10 +250,24 @@ Always use short Wikipedia title phrases in English — no temporal words, no qu
 
 The server resolves English queries to the correct article in each target language automatically.
 
+## Use multi_search_wikipedia for efficiency
+Instead of calling search_wikipedia once per language, use a single multi_search_wikipedia call to run all searches in parallel:
+
+\`\`\`
+multi_search_wikipedia({
+  searches: [
+    { query: "${topic}", language: "en" },
+    { query: "${topic}", language: "si" },
+    { query: "${topic}", language: "ta" },
+    { query: "${topic}", language: "ja" }
+  ]
+})
+\`\`\`
+
 ## Suggested approach
 
-**Step 1 — Start with English**
-search_wikipedia("${topic}", language: "en") to get the baseline article and confirm the correct title.
+**Step 1 — Multi-search across target languages**
+Use multi_search_wikipedia with the same English query across all relevant language editions in one call.
 
 **Step 2 — Identify relevant language editions**
 Consider which languages would have strong coverage:
@@ -241,13 +275,10 @@ Consider which languages would have strong coverage:
 - Scientific topics → "de" (German), "fr" (French), "ja" (Japanese) are often detailed
 - Historical topics → use the language of the civilization being studied
 
-**Step 3 — Search with the same English query**
-Pass the same short English query with a different country or language parameter. The server will find the equivalent article in that language edition automatically.
-
-**Step 4 — Get the full article if needed**
+**Step 3 — Get full articles if needed**
 Use get_article with \`full: true\` to retrieve the complete uncompressed wikitext when a partial extract is not enough.
 
-**Step 5 — Compare and synthesize**
+**Step 4 — Compare and synthesize**
 Note where editions agree, where they differ, and what unique information each adds.`
               }
             }
@@ -290,7 +321,9 @@ For political positions use: "[Role] of [Country]"
 For general topics use the topic name as a Wikipedia article title:
 - "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
 
-Always write the query in English. The server automatically finds the equivalent article in the target language when a non-English language or country code is provided.`,
+Always write the query in English. The server automatically finds the equivalent article in the target language when a non-English language or country code is provided.
+
+To search multiple languages at once, use multi_search_wikipedia instead.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -308,6 +341,55 @@ Always write the query in English. The server automatically finds the equivalent
             ...commonProps
           },
           required: ['query']
+        }
+      },
+      {
+        name: 'multi_search_wikipedia',
+        description: `Search Wikipedia for multiple queries across multiple languages in a single parallel call. All searches execute simultaneously.
+
+Use this when you need to:
+- Search the same topic in multiple languages at once (e.g. "President of Sri Lanka" in English, Sinhala, and Tamil simultaneously)
+- Search multiple different topics in one call
+- Research a topic across several Wikipedia language editions efficiently
+
+QUERY FORMAT: Same rules as search_wikipedia — short title phrases in English, no temporal words, no question words.
+The server automatically resolves each query to the correct article in the specified language.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            searches: {
+              type: 'array',
+              description: 'List of searches to execute in parallel. Each item can specify its own query, language, country, and limit.',
+              items: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: 'Short Wikipedia-style title phrase in English, e.g. "President of Sri Lanka"'
+                  },
+                  language: {
+                    type: 'string',
+                    description: 'Wikipedia language code for this search (e.g. "en", "si", "ja")'
+                  },
+                  country: {
+                    type: 'string',
+                    description: 'Country code for this search (e.g. "LK", "JP") — mapped to the correct language automatically'
+                  },
+                  limit: {
+                    type: 'number',
+                    description: 'Maximum results for this search (1-500)',
+                    default: 10,
+                    minimum: 1,
+                    maximum: 500
+                  }
+                },
+                required: ['query']
+              },
+              minItems: 1,
+              maxItems: 20
+            }
+          },
+          required: ['searches']
         }
       },
       {
@@ -517,6 +599,8 @@ Always write the query in English. The server automatically finds the equivalent
       switch (toolName) {
         case 'search_wikipedia':
           return await this.handleSearchWikipedia(args);
+        case 'multi_search_wikipedia':
+          return await this.handleMultiSearch(args);
         case 'get_article':
           return await this.handleGetArticle(args);
         case 'get_summary':
@@ -596,6 +680,38 @@ Always write the query in English. The server automatically finds the equivalent
         {
           type: 'text',
           text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
+  }
+
+  private async handleMultiSearch(args: any) {
+    const { searches } = args;
+
+    if (!searches || !Array.isArray(searches) || searches.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'searches must be a non-empty array',
+              status: 'error'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const results = await this.wikipediaClient.multiSearch(searches);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            total_searches: searches.length,
+            results
+          }, null, 2)
         }
       ]
     };
