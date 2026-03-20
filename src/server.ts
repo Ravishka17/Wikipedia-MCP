@@ -1,555 +1,938 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { WikipediaClient } from './wikipedia-client.js';
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { z } from "zod";
-import { MCPServer } from './mcp-server.js';
+import type { 
+  SearchResult, 
+  WikipediaArticle, 
+  ArticleSection, 
+  RelatedTopic 
+} from './types.js';
 
-// Load environment variables
-dotenv.config();
+export class MCPServer {
+  private wikipediaClient: WikipediaClient;
+  private serverName: string;
+  private version: string;
+  private botUsername?: string;
+  private botPassword?: string;
 
-const app = express();
-const port = process.env.PORT || 8000;
-
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Bot credentials — optional. If not set, server works without authentication.
-const botConfig = {
-  botUsername: process.env.WIKIPEDIA_BOT_USERNAME,
-  botPassword: process.env.WIKIPEDIA_BOT_PASSWORD,
-};
-
-// Initialize Wikipedia client with environment variables
-const wikipediaClient = new WikipediaClient({
-  language: process.env.WIKIPEDIA_LANGUAGE || 'en',
-  country: process.env.WIKIPEDIA_COUNTRY,
-  enableCache: process.env.ENABLE_CACHE === 'true',
-  ...botConfig
-});
-
-// Initialize MCPServer helper (for tool logic reuse)
-const mcpHelper = new MCPServer({
-  language: process.env.WIKIPEDIA_LANGUAGE || 'en',
-  country: process.env.WIKIPEDIA_COUNTRY,
-  enableCache: process.env.ENABLE_CACHE === 'true',
-  ...botConfig
-});
-
-// Initialize SDK McpServer
-const mcpServer = new McpServer({
-  name: 'wikipedia-mcp-server',
-  version: '1.0.0'
-});
-
-// Simple in-memory store for session data
-const sessionStore = new Map<string, any>();
-
-// Helper to format tool results for SDK
-const formatToolResult = (result: any) => ({
-  content: result.content.map((item: any) => ({
-    type: item.type as "text",
-    text: item.text
-  })),
-  isError: result.isError ? true : undefined
-});
-
-// Register tools with SDK McpServer
-mcpServer.tool('search_wikipedia',
-  { 
-    query: z.string(), 
-    limit: z.number().optional(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('search_wikipedia', args);
-    return formatToolResult(result);
+  constructor(options: {
+    language?: string;
+    country?: string;
+    enableCache?: boolean;
+    botUsername?: string;
+    botPassword?: string;
+  } = {}) {
+    this.wikipediaClient = new WikipediaClient(options);
+    this.botUsername = options.botUsername;
+    this.botPassword = options.botPassword;
+    this.serverName = 'wikipedia-mcp-server';
+    this.version = '1.0.0';
   }
-);
 
-mcpServer.tool('get_article',
-  { 
-    title: z.string(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_article', args);
-    return formatToolResult(result);
+  // Get server information for MCP protocol
+  getServerInfo() {
+    return {
+      name: this.serverName,
+      version: this.version,
+      description: 'Wikipedia MCP Server for AI assistants',
+      protocolVersion: '2024-11-05',
+      tools: this.getToolsList()
+    };
   }
-);
 
-mcpServer.tool('get_summary',
-  { 
-    title: z.string(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_summary', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('get_sections',
-  { 
-    title: z.string(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_sections', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('get_links',
-  { 
-    title: z.string(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_links', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('get_coordinates',
-  { 
-    title: z.string(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_coordinates', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('get_related_topics',
-  { 
-    title: z.string(), 
-    limit: z.number().optional(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('get_related_topics', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('summarize_article_for_query',
-  { 
-    title: z.string(), 
-    query: z.string(), 
-    max_length: z.number().optional(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('summarize_article_for_query', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('summarize_article_section',
-  { 
-    title: z.string(), 
-    section_title: z.string(), 
-    max_length: z.number().optional(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('summarize_article_section', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('extract_key_facts',
-  { 
-    title: z.string(), 
-    topic_within_article: z.string().optional(), 
-    count: z.number().optional(),
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('extract_key_facts', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('test_wikipedia_connectivity',
-  {
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('test_wikipedia_connectivity', args);
-    return formatToolResult(result);
-  }
-);
-
-mcpServer.tool('list_supported_countries',
-  {
-    language: z.string().optional(),
-    country: z.string().optional()
-  },
-  async (args) => {
-    const result = await mcpHelper.executeTool('list_supported_countries', args);
-    return formatToolResult(result);
-  }
-);
-
-// Legacy /messages endpoint
-app.post('/messages', async (req, res) => {
-  console.log('MCP messages endpoint called');
-  res.status(200).json({ 
-    message: "Use POST /mcp for MCP protocol communication. SSE is not supported on Vercel.",
-    instruction: "Please connect using HTTP transport to the /mcp endpoint"
-  });
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    service: 'wikipedia-mcp-server'
-  });
-});
-
-// MCP HTTP Transport Endpoint (POST for direct MCP communication)
-app.post('/mcp', async (req, res) => {
-  console.log('MCP HTTP transport request received');
-  res.setHeader('Content-Type', 'application/json');
-  
-  try {
-    const requestData = req.body;
-    console.log('MCP Request:', JSON.stringify(requestData, null, 2));
-
-    // Notifications have no "id" — return 202 Accepted with no body
-    if (requestData.id === undefined || requestData.id === null) {
-      res.status(202).end();
-      return;
+  private getClient(args: any): WikipediaClient {
+    if (args.language || args.country) {
+      // Create new client if language/country override is specified
+      // Bot credentials are passed through so authenticated requests still work
+      return new WikipediaClient({
+        language: args.language || this.wikipediaClient.getLanguage(),
+        country: args.country,
+        enableCache: false,
+        botUsername: this.botUsername,
+        botPassword: this.botPassword,
+      });
     }
+    return this.wikipediaClient;
+  }
 
-    if (requestData.method === 'initialize') {
-      // Echo back the client's requested protocolVersion (required by spec)
-      const clientVersion = requestData.params?.protocolVersion || '2024-11-05';
-      res.json({
-        jsonrpc: '2.0',
-        id: requestData.id,
-        result: {
-          protocolVersion: clientVersion,
-          capabilities: {
-            tools: {},
-            prompts: {}
+  // ── Prompt templates ────────────────────────────────────────────────────
+
+  getPromptsList() {
+    return [
+      {
+        name: 'search_in_native_language',
+        description: 'Guides the assistant on how to search Wikipedia correctly when a non-English language or country code is used. The server handles language resolution automatically — always write queries in English using short Wikipedia-style title phrases.',
+        arguments: [
+          {
+            name: 'language',
+            description: 'The Wikipedia language code being used (e.g. "si", "ja", "ar")',
+            required: true
           },
-          serverInfo: {
-            name: 'wikipedia-mcp-server',
-            version: '1.0.0'
+          {
+            name: 'topic',
+            description: 'The topic the user wants to search for',
+            required: true
           }
-        }
-      });
-
-    } else if (requestData.method === 'ping') {
-      // Some clients send a ping after initialize
-      res.json({ jsonrpc: '2.0', id: requestData.id, result: {} });
-
-    } else if (requestData.method === 'tools/list') {
-      res.json({
-        jsonrpc: '2.0',
-        id: requestData.id,
-        result: {
-          tools: mcpHelper.getServerInfo().tools
-        }
-      });
-
-    } else if (requestData.method === 'tools/call') {
-      const { name, arguments: args } = requestData.params;
-      const result = await mcpHelper.executeTool(name, args);
-      res.json({
-        jsonrpc: '2.0',
-        id: requestData.id,
-        result: formatToolResult(result)
-      });
-
-    } else if (requestData.method === 'prompts/list') {
-      res.json({
-        jsonrpc: '2.0',
-        id: requestData.id,
-        result: {
-          prompts: mcpHelper.getPromptsList()
-        }
-      });
-
-    } else if (requestData.method === 'prompts/get') {
-      const { name, arguments: args = {} } = requestData.params;
-      try {
-        const prompt = mcpHelper.getPrompt(name, args);
-        res.json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          result: prompt
-        });
-      } catch (err: any) {
-        res.status(200).json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          error: {
-            code: -32602,
-            message: err.message
+        ]
+      },
+      {
+        name: 'wikipedia_usage_guide',
+        description: 'A full guide on how to use the Wikipedia MCP tools effectively, including query format, language handling, and tool selection.',
+        arguments: []
+      },
+      {
+        name: 'multilingual_research',
+        description: 'Guides the assistant through researching a topic across multiple Wikipedia language editions.',
+        arguments: [
+          {
+            name: 'topic',
+            description: 'The topic to research across languages',
+            required: true
           }
-        });
+        ]
+      }
+    ];
+  }
+
+  getPrompt(name: string, args: Record<string, string> = {}) {
+    switch (name) {
+
+      case 'search_in_native_language': {
+        const language = args.language || 'the target language';
+        const topic = args.topic || 'the requested topic';
+        return {
+          description: 'Instructions for searching Wikipedia correctly with a non-English language code',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `You are about to search Wikipedia for "${topic}" using language code "${language}".
+
+The server automatically resolves English queries to the correct article in the target language — you do NOT need to translate the query yourself.
+
+CRITICAL — query format rules:
+
+1. Always write the query in English as a short Wikipedia article title phrase.
+2. Do NOT write full questions or sentences.
+3. Do NOT include the word "current", "new", "latest", "recent", "today's", "former", or any other temporal word. Wikipedia article titles never contain these words — they describe the role itself, not who holds it right now.
+4. Do NOT include question words like "who is", "what is", "where is".
+
+For political roles, the correct pattern is simply: "[Role] of [Country]"
+- ✅ "President of Sri Lanka"  ← correct
+- ✅ "Prime Minister of Japan"  ← correct
+- ❌ "Current President of Sri Lanka"  ← wrong, "current" breaks the search
+- ❌ "Who is the current president of Sri Lanka?"  ← wrong, full question
+
+For general topics, just use the topic name as it would appear as a Wikipedia article title:
+- ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
+- ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
+
+Now search for "${topic}" using the correct short title format — no temporal words, no question words, English only.`
+              }
+            }
+          ]
+        };
       }
 
-    } else {
-      // Unknown method with an id — return JSON-RPC error (status 200, not 400)
-      res.status(200).json({
-        jsonrpc: '2.0',
-        id: requestData.id,
-        error: {
-          code: -32601,
-          message: `Method not found: ${requestData.method}`
+      case 'wikipedia_usage_guide': {
+        return {
+          description: 'Full guide for using Wikipedia MCP tools',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `# Wikipedia MCP Usage Guide
+
+## Available Tools
+- **search_wikipedia** — Search for articles by keyword
+- **get_article** — Retrieve full article text
+- **get_summary** — Get the introductory summary of an article
+- **get_sections** — List the sections of an article
+- **get_links** — Get all internal links within an article
+- **get_coordinates** — Get geographic coordinates for place articles
+- **get_related_topics** — Find related articles based on links
+- **summarize_article_for_query** — Get a summary focused on a specific question
+- **summarize_article_section** — Summarize a specific section
+- **extract_key_facts** — Extract bullet-point facts from an article
+- **test_wikipedia_connectivity** — Check if the API is reachable and whether you are authenticated
+- **list_supported_countries** — See all supported language editions and country codes
+
+## Language Selection
+Every tool accepts optional \`language\` and \`country\` parameters:
+- \`language\`: a Wikipedia language code, e.g. "en", "si", "ja", "ar", "zh", "fr"
+- \`country\`: an ISO country code, e.g. "US", "LK", "JP" — automatically mapped to the right language
+
+The server automatically resolves English queries to the correct article in the target language. Always write queries in English regardless of the target language.
+
+## Query Format — Most Important Rule
+Always use short Wikipedia article title phrases. Never use full questions, sentences, or temporal words.
+
+Wikipedia article titles describe a role or topic permanently — they never say "current", "new", "latest", or "today's". Strip those words before forming the query.
+
+For political roles use: "[Role] of [Country]"
+- ✅ "President of Sri Lanka"
+- ✅ "Prime Minister of United Kingdom"
+- ✅ "Chancellor of Germany"
+- ❌ "Current President of Sri Lanka" — never include "current"
+- ❌ "Who is the current president of Sri Lanka?"
+
+For general topics:
+- ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
+- ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
+
+## Recommended Workflow
+1. Use **search_wikipedia** to find the right article title
+2. Use **get_summary** for a quick overview
+3. Use **get_sections** to understand the article structure
+4. Use **summarize_article_for_query** or **summarize_article_section** for targeted information
+5. Use **extract_key_facts** for a concise bullet list
+6. Use **get_article** only when you need the full text
+
+## Tips
+- Article titles returned in search results are the exact titles to use in subsequent tool calls
+- For geographic topics, **get_coordinates** returns lat/lon
+- **get_related_topics** is useful for discovering context around a subject
+- The "simple" language code gives access to Simple English Wikipedia`
+              }
+            }
+          ]
+        };
+      }
+
+      case 'multilingual_research': {
+        const topic = args.topic || 'the requested topic';
+        return {
+          description: 'Guide for researching a topic across multiple Wikipedia language editions',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `Research "${topic}" across multiple Wikipedia language editions for a comprehensive view.
+
+## Why use multiple languages?
+Different Wikipedia editions often contain:
+- Local perspectives and region-specific detail not in English Wikipedia
+- More detailed coverage of topics important to that culture
+- Different sources and citations from local scholarship
+
+## Query format reminder
+Always use short Wikipedia title phrases in English — no temporal words, no question words.
+- ✅ "President of Sri Lanka" with country: "LK"
+- ❌ "Current President of Sri Lanka" with country: "LK"
+- ❌ "Who is the current president of Sri Lanka?" with country: "LK"
+
+The server resolves English queries to the correct article in each target language automatically.
+
+## Suggested approach
+
+**Step 1 — Start with English**
+search_wikipedia("${topic}", language: "en") to get the baseline article and confirm the correct title.
+
+**Step 2 — Identify relevant language editions**
+Consider which languages would have strong coverage:
+- Topics about a specific country → use that country's code (e.g. country: "LK" for Sri Lanka)
+- Scientific topics → "de" (German), "fr" (French), "ja" (Japanese) are often detailed
+- Historical topics → use the language of the civilization being studied
+
+**Step 3 — Search with the same English query**
+Pass the same short English query with a different country or language parameter. The server will find the equivalent article in that language edition automatically.
+
+**Step 4 — Compare and synthesize**
+Note where editions agree, where they differ, and what unique information each adds.`
+              }
+            }
+          ]
+        };
+      }
+
+      default:
+        throw new Error(`Unknown prompt: ${name}`);
+    }
+  }
+
+  private getToolsList() {
+    const commonProps = {
+      language: {
+        type: 'string',
+        description: 'Wikipedia language code (e.g., "en", "si", "ja"). The server automatically resolves English queries to the target language — always write queries in English.'
+      },
+      country: {
+        type: 'string',
+        description: 'Country code to infer language (e.g., "US", "LK", "JP"). Automatically mapped to the correct Wikipedia language edition.'
+      }
+    };
+
+    return [
+      {
+        name: 'search_wikipedia',
+        description: `Search Wikipedia for articles matching a query.
+
+QUERY FORMAT: Use short Wikipedia article title phrases — not full questions, sentences, or temporal words.
+
+Do NOT include "current", "new", "latest", "recent", "former", "today's" in the query. Wikipedia article titles never contain these words.
+- ✅ "President of Sri Lanka" — correct
+- ❌ "Current President of Sri Lanka" — wrong, remove "Current"
+- ❌ "Who is the current president of Sri Lanka?" — wrong
+
+For political positions use: "[Role] of [Country]"
+- "President of Sri Lanka", "Prime Minister of Japan", "Chancellor of Germany"
+
+For general topics use the topic name as a Wikipedia article title:
+- "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
+
+Always write the query in English. The server automatically finds the equivalent article in the target language when a non-English language or country code is provided.`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Short Wikipedia-style title phrase in English. No temporal words (current/new/latest), no question words. Example: "President of Sri Lanka" not "Current President of Sri Lanka".'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return (1-500)',
+              default: 10,
+              minimum: 1,
+              maximum: 500
+            },
+            ...commonProps
+          },
+          required: ['query']
         }
-      });
+      },
+      {
+        name: 'get_article',
+        description: 'Get the full content of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_summary',
+        description: 'Get a summary of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_sections',
+        description: 'Get the sections of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_links',
+        description: 'Get the links contained within a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_coordinates',
+        description: 'Get the coordinates of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'get_related_topics',
+        description: 'Get topics related to a Wikipedia article based on links and categories',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of related topics',
+              default: 10,
+              minimum: 1,
+              maximum: 50
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'summarize_article_for_query',
+        description: 'Get a summary of a Wikipedia article tailored to a specific query',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            query: {
+              type: 'string',
+              description: 'The query to focus the summary on'
+            },
+            max_length: {
+              type: 'number',
+              description: 'Maximum length of the summary',
+              default: 250,
+              minimum: 50,
+              maximum: 1000
+            },
+            ...commonProps
+          },
+          required: ['title', 'query']
+        }
+      },
+      {
+        name: 'summarize_article_section',
+        description: 'Get a summary of a specific section of a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            section_title: {
+              type: 'string',
+              description: 'The title of the section to summarize'
+            },
+            max_length: {
+              type: 'number',
+              description: 'Maximum length of the summary',
+              default: 150,
+              minimum: 50,
+              maximum: 500
+            },
+            ...commonProps
+          },
+          required: ['title', 'section_title']
+        }
+      },
+      {
+        name: 'extract_key_facts',
+        description: 'Extract key facts from a Wikipedia article',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'The title of the Wikipedia article'
+            },
+            topic_within_article: {
+              type: 'string',
+              description: 'A specific topic within the article to focus fact extraction'
+            },
+            count: {
+              type: 'number',
+              description: 'Number of key facts to extract',
+              default: 5,
+              minimum: 1,
+              maximum: 20
+            },
+            ...commonProps
+          },
+          required: ['title']
+        }
+      },
+      {
+        name: 'test_wikipedia_connectivity',
+        description: 'Provide diagnostics for Wikipedia API connectivity',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      },
+      {
+        name: 'list_supported_countries',
+        description: 'List all supported country/locale codes',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      }
+    ];
+  }
+
+  // Execute a tool with given arguments
+  async executeTool(toolName: string, args: any) {
+    try {
+      switch (toolName) {
+        case 'search_wikipedia':
+          return await this.handleSearchWikipedia(args);
+        case 'get_article':
+          return await this.handleGetArticle(args);
+        case 'get_summary':
+          return await this.handleGetSummary(args);
+        case 'get_sections':
+          return await this.handleGetSections(args);
+        case 'get_links':
+          return await this.handleGetLinks(args);
+        case 'get_coordinates':
+          return await this.handleGetCoordinates(args);
+        case 'get_related_topics':
+          return await this.handleGetRelatedTopics(args);
+        case 'summarize_article_for_query':
+          return await this.handleSummarizeForQuery(args);
+        case 'summarize_article_section':
+          return await this.handleSummarizeSection(args);
+        case 'extract_key_facts':
+          return await this.handleExtractFacts(args);
+        case 'test_wikipedia_connectivity':
+          return await this.handleTestConnectivity(args);
+        case 'list_supported_countries':
+          return await this.handleListCountries(args);
+        default:
+          throw new Error(`Unknown tool: ${toolName}`);
+      }
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error executing tool ${toolName}: ${error.message}`
+          }
+        ],
+        isError: true
+      };
+    }
+  }
+
+  private async handleSearchWikipedia(args: any) {
+    const { query, limit = 10 } = args;
+    const client = this.getClient(args);
+
+    if (!query || !query.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              query: query,
+              results: [],
+              status: 'error',
+              message: 'Empty search query provided'
+            }, null, 2)
+          }
+        ]
+      };
     }
 
-  } catch (error) {
-    console.error('Error handling MCP request:', error);
-    res.status(200).json({
-      jsonrpc: '2.0',
-      id: req.body?.id || null,
-      error: {
-        code: -32603,
-        message: 'Internal error',
-        data: error instanceof Error ? error.message : String(error)
-      }
-    });
+    const validatedLimit = Math.min(Math.max(limit, 1), 500);
+    const results = await client.search(query, { limit: validatedLimit });
+    const status = results.length > 0 ? 'success' : 'no_results';
+
+    const response: any = {
+      query: query,
+      results: results,
+      status: status,
+      count: results.length,
+      language: client.getLanguage()
+    };
+
+    if (!results.length) {
+      response.message = 'No search results found. This could indicate connectivity issues, API errors, or simply no matching articles.';
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(response, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// GET /mcp — Streamable HTTP spec: return 405 to signal SSE not supported
-// This tells clients to use HTTP transport (POST only), not SSE
-app.get('/mcp', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.status(405).json({
-    error: 'Method Not Allowed',
-    message: 'This server uses Streamable HTTP transport. Use POST /mcp for MCP communication.'
-  });
-});
+  private async handleGetArticle(args: any) {
+    const { title } = args;
+    const client = this.getClient(args);
 
-// ── REST endpoints ────────────────────────────────────────────────────────────
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              exists: false,
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
 
-// Search Wikipedia
-app.get('/search/:query', async (req, res) => {
-  try {
-    const { query } = req.params;
-    const { limit = 10 } = req.query;
-    const results = await wikipediaClient.search(query, { limit: parseInt(limit as string) || 10 });
-    res.json({ query, results, count: results.length, language: wikipediaClient.getLanguage() });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, query: req.params.query });
+    const article = await client.getArticle(title);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(article, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Get article
-app.get('/article/:title', async (req, res) => {
-  try {
-    const article = await wikipediaClient.getArticle(req.params.title);
-    res.json(article);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, exists: false });
-  }
-});
+  private async handleGetSummary(args: any) {
+    const { title } = args;
+    const client = this.getClient(args);
 
-// Get summary
-app.get('/summary/:title', async (req, res) => {
-  try {
-    const { title } = req.params;
-    const summary = await wikipediaClient.getSummary(title);
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              summary: null,
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const summary = await client.getSummary(title);
     const isError = summary.startsWith('Error:');
-    res.json({ title, summary: isError ? null : summary, error: isError ? summary : undefined });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, summary: null });
-  }
-});
 
-// Get sections
-app.get('/sections/:title', async (req, res) => {
-  try {
-    const sections = await wikipediaClient.getSections(req.params.title);
-    res.json({ title: req.params.title, sections });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, sections: [] });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            summary: isError ? null : summary,
+            error: isError ? summary : undefined
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Get links
-app.get('/links/:title', async (req, res) => {
-  try {
-    const links = await wikipediaClient.getLinks(req.params.title);
-    res.json({ title: req.params.title, links });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, links: [] });
+  private async handleGetSections(args: any) {
+    const { title } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              sections: [],
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const sections = await client.getSections(title);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            sections: sections
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Get coordinates
-app.get('/coordinates/:title', async (req, res) => {
-  try {
-    const coordinates = await wikipediaClient.getCoordinates(req.params.title);
-    res.json(coordinates);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, coordinates: [], exists: false });
+  private async handleGetLinks(args: any) {
+    const { title } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              links: [],
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const links = await client.getLinks(title);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            links: links
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Get related topics
-app.get('/related/:title', async (req, res) => {
-  try {
-    const { limit = 10 } = req.query;
-    const relatedTopics = await wikipediaClient.getRelatedTopics(req.params.title, parseInt(limit as string) || 10);
-    res.json({ title: req.params.title, related_topics: relatedTopics });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, related_topics: [] });
+  private async handleGetCoordinates(args: any) {
+    const { title } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              pageid: 0,
+              coordinates: [],
+              exists: false,
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const coordinates = await client.getCoordinates(title);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(coordinates, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Query-focused summary
-app.get('/summary/:title/query/:query/length/:maxLength', async (req, res) => {
-  try {
-    const { title, query } = req.params;
-    const { maxLength = 250 } = req.query;
-    const summary = await wikipediaClient.summarizeForQuery(title, query, parseInt(maxLength as string) || 250);
-    res.json({ title, query, summary });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, query: req.params.query, summary: null });
+  private async handleGetRelatedTopics(args: any) {
+    const { title, limit = 10 } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              related_topics: [],
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const relatedTopics = await client.getRelatedTopics(title, limit);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            related_topics: relatedTopics
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Section summary
-app.get('/summary/:title/section/:section/length/:maxLength', async (req, res) => {
-  try {
-    const { title, section } = req.params;
-    const { maxLength = 150 } = req.query;
-    const summary = await wikipediaClient.summarizeSection(title, section, parseInt(maxLength as string) || 150);
-    res.json({ title, section_title: section, summary });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, section_title: req.params.section, summary: null });
+  private async handleSummarizeForQuery(args: any) {
+    const { title, query, max_length = 250 } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim() || !query || !query.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              query: query,
+              summary: null,
+              error: 'Invalid title or query provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const summary = await client.summarizeForQuery(title, query, max_length);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            query: query,
+            summary: summary
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Extract key facts
-app.get('/facts/:title', async (req, res) => {
-  try {
-    const { title } = req.params;
-    const { topic, count = 5 } = req.query;
-    const facts = await wikipediaClient.extractFacts(title, topic as string, parseInt(count as string) || 5);
-    res.json({ title, topic_within_article: topic || null, facts });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message, title: req.params.title, facts: [] });
+  private async handleSummarizeSection(args: any) {
+    const { title, section_title, max_length = 150 } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim() || !section_title || !section_title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              section_title: section_title,
+              summary: null,
+              error: 'Invalid title or section title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const summary = await client.summarizeSection(title, section_title, max_length);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            section_title: section_title,
+            summary: summary
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
 
-// Test connectivity
-app.get('/test-connectivity', async (req, res) => {
-  try {
-    const diagnostics = await wikipediaClient.testConnectivity();
+  private async handleExtractFacts(args: any) {
+    const { title, topic_within_article, count = 5 } = args;
+    const client = this.getClient(args);
+
+    if (!title || !title.trim()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              title: title,
+              facts: [],
+              error: 'Invalid title provided'
+            }, null, 2)
+          }
+        ]
+      };
+    }
+
+    const facts = await client.extractFacts(title, topic_within_article, count);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            title: title,
+            topic_within_article: topic_within_article || null,
+            facts: facts
+          }, null, 2)
+        }
+      ]
+    };
+  }
+
+  private async handleTestConnectivity(args: any) {
+    const client = this.getClient(args);
+    const diagnostics = await client.testConnectivity();
+
+    // Round response_time_ms for nicer output
     if (diagnostics.status === 'success' && typeof diagnostics.response_time_ms === 'number') {
       diagnostics.response_time_ms = Math.round(diagnostics.response_time_ms * 1000) / 1000;
     }
-    res.json(diagnostics);
-  } catch (error: any) {
-    res.status(500).json({ status: 'failed', error: error.message, response_time_ms: 0 });
-  }
-});
 
-// List supported countries
-app.get('/supported-countries', async (req, res) => {
-  try {
-    const countries = WikipediaClient.listSupportedCountries();
-    res.json({
-      supported_countries: countries,
-      usage_examples: [
-        'wikipedia-mcp --country US    # English (United States)',
-        'wikipedia-mcp --country CN    # Chinese Simplified (China)',
-        'wikipedia-mcp --country TW    # Chinese Traditional (Taiwan)',
-        'wikipedia-mcp --country Japan # Japanese'
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(diagnostics, null, 2)
+        }
       ]
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    };
   }
-});
 
-// MCP Tool execution endpoint (REST wrapper)
-app.post('/tools/:toolName', async (req, res) => {
-  try {
-    const { toolName } = req.params;
-    const result = await mcpHelper.executeTool(toolName, req.body);
-    if ((result as any).isError) {
-      res.status(500).json(result);
-    } else {
-      res.json(result);
-    }
-  } catch (error: any) {
-    res.status(500).json({ content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true });
+  private async handleListCountries(args: any) {
+    const countries = WikipediaClient.listSupportedCountries();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            supported_countries: countries,
+            usage_examples: [
+              'wikipedia-mcp --country US    # English (United States)',
+              'wikipedia-mcp --country CN    # Chinese Simplified (China)',
+              'wikipedia-mcp --country TW    # Chinese Traditional (Taiwan)',
+              'wikipedia-mcp --country Japan # Japanese'
+            ]
+          }, null, 2)
+        }
+      ]
+    };
   }
-});
-
-// Error handling middleware
-app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Server error:', error);
-  res.status(500).json({ error: 'Internal server error', message: error.message });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Endpoint not found',
-    path: req.originalUrl,
-    method: req.method,
-    available_endpoints: [
-      'GET /health',
-      'GET /mcp',
-      'POST /mcp',
-      'POST /messages',
-      'GET /search/:query',
-      'GET /article/:title',
-      'GET /summary/:title',
-      'GET /sections/:title',
-      'GET /links/:title',
-      'GET /coordinates/:title',
-      'GET /related/:title',
-      'GET /summary/:title/query/:query/length/:maxLength',
-      'GET /summary/:title/section/:section/length/:maxLength',
-      'GET /facts/:title',
-      'GET /test-connectivity',
-      'GET /supported-countries',
-      'POST /tools/:toolName'
-    ]
-  });
-});
-
-// Start server (local dev only)
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(port, () => {
-    console.log(`Wikipedia MCP Server running on port ${port}`);
-    console.log(`Health check: http://localhost:${port}/health`);
-    console.log(`MCP endpoint: http://localhost:${port}/mcp`);
-  });
 }
-
-export default app;
