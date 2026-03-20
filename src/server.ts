@@ -211,6 +211,21 @@ mcpServer.tool('list_supported_countries',
   }
 );
 
+mcpServer.tool('multi_search_wikipedia',
+  {
+    searches: z.array(z.object({
+      query: z.string(),
+      language: z.string().optional(),
+      country: z.string().optional(),
+      limit: z.number().optional()
+    })).min(1).max(20)
+  },
+  async (args) => {
+    const result = await mcpHelper.executeTool('multi_search_wikipedia', args);
+    return formatToolResult(result);
+  }
+);
+
 // Legacy /messages endpoint
 app.post('/messages', async (req, res) => {
   console.log('MCP messages endpoint called');
