@@ -10,14 +10,19 @@ export class MCPServer {
   private wikipediaClient: WikipediaClient;
   private serverName: string;
   private version: string;
+  private botUsername?: string;
+  private botPassword?: string;
 
   constructor(options: {
     language?: string;
     country?: string;
     enableCache?: boolean;
-    accessToken?: string;
+    botUsername?: string;
+    botPassword?: string;
   } = {}) {
     this.wikipediaClient = new WikipediaClient(options);
+    this.botUsername = options.botUsername;
+    this.botPassword = options.botPassword;
     this.serverName = 'wikipedia-mcp-server';
     this.version = '1.0.0';
   }
@@ -36,11 +41,13 @@ export class MCPServer {
   private getClient(args: any): WikipediaClient {
     if (args.language || args.country) {
       // Create new client if language/country override is specified
+      // Bot credentials are passed through so authenticated requests still work
       return new WikipediaClient({
-        language: args.language || this.wikipediaClient.getLanguage(), // fallback to current lang if only country provided (though Client logic handles this)
+        language: args.language || this.wikipediaClient.getLanguage(),
         country: args.country,
-        enableCache: false, // Disable cache for one-off requests to avoid pollution or complexity
-        accessToken: (this.wikipediaClient as any).accessToken 
+        enableCache: false,
+        botUsername: this.botUsername,
+        botPassword: this.botPassword,
       });
     }
     return this.wikipediaClient;
