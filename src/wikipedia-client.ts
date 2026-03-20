@@ -1,15 +1,18 @@
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { SearchResult, WikipediaArticle, ArticleSection, Coordinates, RelatedTopic } from './types.js';
 
 export class WikipediaClient {
   private language: string;
   private baseUrl: string;
-  private accessToken?: string;
   private enableCache: boolean;
   private cache: Map<string, any> = new Map();
 
+  private botUsername?: string;
+  private botPassword?: string;
+  private sessionCookie?: string;
+  private loginPromise?: Promise<void>;
+
   // ── ISO 3166-1 alpha-2 country codes + common names → Wikipedia language ─
-  // No duplicate keys — language codes are handled separately via VALID_LANGUAGE_CODES.
   public static readonly COUNTRY_TO_LANGUAGE: Record<string, string> = {
     // A
     'AD': 'ca',  'Andorra': 'ca',
@@ -239,7 +242,6 @@ export class WikipediaClient {
   };
 
   // ── Every active Wikipedia subdomain language code ───────────────────────
-  // Used to validate and accept direct language= values.
   private static readonly VALID_LANGUAGE_CODES = new Set([
     'ab','ace','ady','af','ak','als','alt','am','ami','an','ang','ar','arc',
     'ary','arz','as','ast','atj','av','avk','awa','ay','az',
@@ -287,25 +289,24 @@ export class WikipediaClient {
     language?: string;
     country?: string;
     enableCache?: boolean;
-    accessToken?: string;
+    botUsername?: string;
+    botPassword?: string;
   } = {}) {
     this.language = 'en';
-    this.accessToken = options.accessToken;
     this.enableCache = options.enableCache || false;
+    this.botUsername = options.botUsername;
+    this.botPassword = options.botPassword;
 
     if (options.country) {
-      // Try exact → uppercase → title-case in the country map
       const resolved =
         WikipediaClient.COUNTRY_TO_LANGUAGE[options.country] ||
         WikipediaClient.COUNTRY_TO_LANGUAGE[options.country.toUpperCase()] ||
         WikipediaClient.COUNTRY_TO_LANGUAGE[
           options.country.charAt(0).toUpperCase() + options.country.slice(1).toLowerCase()
         ];
-
       if (resolved) {
         this.language = resolved;
       } else {
-        // Fall back: treat the value as a raw language code
         const lc = options.country.toLowerCase().replace(/_/g, '-');
         if (WikipediaClient.VALID_LANGUAGE_CODES.has(lc)) {
           this.language = lc;
@@ -318,27 +319,99 @@ export class WikipediaClient {
       }
     } else if (options.language) {
       const lc = options.language.toLowerCase().replace(/_/g, '-');
-      // Accept valid codes strictly; pass through unknown ones anyway
-      // (Wikipedia may have added editions after this list was compiled)
       this.language = WikipediaClient.VALID_LANGUAGE_CODES.has(lc) ? lc : options.language;
     }
 
     this.baseUrl = `https://${this.language}.wikipedia.org/w/api.php`;
+
+    // Kick off login in the background if credentials are provided
+    if (this.botUsername && this.botPassword) {
+      this.loginPromise = this.login();
+    }
   }
 
   getLanguage(): string {
     return this.language;
   }
 
-  private getHeaders() {
-    const headers: Record<string, string> = {
-      'User-Agent': 'Wikipedia-MCP-Server/1.0.0 (https://vercel.com/wikipedia-mcp)'
-    };
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+  // ── Bot password login ───────────────────────────────────────────────────
+
+  private async login(): Promise<void> {
+    try {
+      // Step 1: get a login token
+      const tokenRes = await axios.get(this.baseUrl, {
+        params: { action: 'query', meta: 'tokens', type: 'login', format: 'json' },
+        headers: { 'User-Agent': this.userAgent() },
+      });
+      const loginToken = tokenRes.data?.query?.tokens?.logintoken;
+      if (!loginToken) throw new Error('Could not retrieve login token');
+
+      // Collect Set-Cookie from token response
+      const tokenCookies = this.extractCookies(tokenRes.headers['set-cookie']);
+
+      // Step 2: POST login with bot credentials
+      const loginRes = await axios.post(
+        this.baseUrl,
+        new URLSearchParams({
+          action: 'login',
+          lgname: this.botUsername!,
+          lgpassword: this.botPassword!,
+          lgtoken: loginToken,
+          format: 'json',
+        }),
+        {
+          headers: {
+            'User-Agent': this.userAgent(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+            ...(tokenCookies ? { Cookie: tokenCookies } : {}),
+          },
+        }
+      );
+
+      const result = loginRes.data?.login?.result;
+      if (result !== 'Success') {
+        console.error(`Wikipedia bot login failed: ${result}`);
+        return;
+      }
+
+      // Merge cookies from both responses
+      const loginCookies = this.extractCookies(loginRes.headers['set-cookie']);
+      this.sessionCookie = this.mergeCookies(tokenCookies, loginCookies);
+      console.log('Wikipedia bot login successful');
+    } catch (err: any) {
+      console.error('Wikipedia bot login error:', err.message);
     }
+  }
+
+  private extractCookies(setCookieHeader: string[] | string | undefined): string {
+    if (!setCookieHeader) return '';
+    const cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+    return cookies
+      .map(c => c.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ');
+  }
+
+  private mergeCookies(a: string, b: string): string {
+    const map = new Map<string, string>();
+    for (const part of [...a.split('; '), ...b.split('; ')]) {
+      const [k, ...rest] = part.split('=');
+      if (k) map.set(k.trim(), rest.join('=').trim());
+    }
+    return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+  }
+
+  private userAgent(): string {
+    return 'Wikipedia-MCP-Server/1.0.0 (https://vercel.com/wikipedia-mcp)';
+  }
+
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'User-Agent': this.userAgent() };
+    if (this.sessionCookie) headers['Cookie'] = this.sessionCookie;
     return headers;
   }
+
+  // ── Cache helpers ────────────────────────────────────────────────────────
 
   private getCacheKey(method: string, params: Record<string, any>): string {
     return `${method}_${JSON.stringify(params)}`;
@@ -358,7 +431,15 @@ export class WikipediaClient {
     }
   }
 
+  // ── Core request ─────────────────────────────────────────────────────────
+
   private async makeRequest(params: Record<string, any>): Promise<any> {
+    // Wait for login to complete before first authenticated request
+    if (this.loginPromise) {
+      await this.loginPromise;
+      this.loginPromise = undefined;
+    }
+
     const cacheKey = this.getCacheKey('request', params);
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
@@ -367,7 +448,7 @@ export class WikipediaClient {
       const response = await axios.get(this.baseUrl, {
         params: { format: 'json', ...params },
         headers: this.getHeaders(),
-        timeout: 10000
+        timeout: 10000,
       });
       this.setCache(cacheKey, response.data);
       return response.data;
@@ -377,19 +458,16 @@ export class WikipediaClient {
     }
   }
 
+  // ── Public API methods ───────────────────────────────────────────────────
+
   async search(query: string, options: { limit?: number } = {}): Promise<SearchResult[]> {
     if (!query?.trim()) return [];
     const data = await this.makeRequest({
-      action: 'query',
-      list: 'search',
-      srsearch: query,
-      srlimit: options.limit || 10,
-      srsort: 'relevance'
+      action: 'query', list: 'search',
+      srsearch: query, srlimit: options.limit || 10, srsort: 'relevance'
     });
     return (data.query?.search ?? []).map((item: any) => ({
-      title: item.title,
-      snippet: item.snippet,
-      pageid: item.pageid,
+      title: item.title, snippet: item.snippet, pageid: item.pageid,
       url: `https://${this.language}.wikipedia.org/wiki/${encodeURIComponent(item.title)}`
     }));
   }
@@ -398,27 +476,17 @@ export class WikipediaClient {
     if (!title?.trim()) return { title, pageid: 0, exists: false, error: 'Invalid title provided' };
     try {
       const data = await this.makeRequest({
-        action: 'query',
-        prop: 'extracts|info|categories',
-        titles: title,
-        exintro: false,
-        explaintext: true,
-        inprop: 'url|preload',
-        clshow: '!hidden',
-        redirects: 1,
-        formatversion: 2
+        action: 'query', prop: 'extracts|info|categories',
+        titles: title, exintro: false, explaintext: true,
+        inprop: 'url|preload', clshow: '!hidden', redirects: 1, formatversion: 2
       });
       if (data.query?.pages) {
         const page = data.query.pages[0];
         if (page.missing !== undefined) return { title, pageid: 0, exists: false, error: 'Article not found' };
         return {
-          title: page.title,
-          pageid: page.pageid,
-          summary: this.extractSummary(page.extract),
-          text: page.extract,
-          links: [],
-          categories: page.categories?.map((c: any) => c.title) ?? [],
-          exists: true
+          title: page.title, pageid: page.pageid,
+          summary: this.extractSummary(page.extract), text: page.extract, links: [],
+          categories: page.categories?.map((c: any) => c.title) ?? [], exists: true
         };
       }
       return { title, pageid: 0, exists: false, error: 'Article not found' };
@@ -431,13 +499,8 @@ export class WikipediaClient {
     if (!title?.trim()) return 'Error: Invalid title provided';
     try {
       const data = await this.makeRequest({
-        action: 'query',
-        prop: 'extracts',
-        titles: title,
-        exintro: true,
-        explaintext: true,
-        redirects: 1,
-        formatversion: 2
+        action: 'query', prop: 'extracts', titles: title,
+        exintro: true, explaintext: true, redirects: 1, formatversion: 2
       });
       if (data.query?.pages) {
         const page = data.query.pages[0];
@@ -453,12 +516,8 @@ export class WikipediaClient {
   async getSections(title: string): Promise<ArticleSection[]> {
     if (!title?.trim()) return [];
     try {
-      const data = await this.makeRequest({
-        action: 'parse', page: title, prop: 'sections', formatversion: 2
-      });
-      return (data.parse?.sections ?? []).map((s: any) => ({
-        title: s.line, content: '', level: s.level
-      }));
+      const data = await this.makeRequest({ action: 'parse', page: title, prop: 'sections', formatversion: 2 });
+      return (data.parse?.sections ?? []).map((s: any) => ({ title: s.line, content: '', level: s.level }));
     } catch (error: any) {
       console.error('Error getting sections:', error.message);
       return [];
@@ -489,11 +548,10 @@ export class WikipediaClient {
         const page = data.query.pages[0];
         if (page.missing !== undefined) return { title, pageid: 0, coordinates: [], exists: false, error: 'Article not found' };
         return {
-          title: page.title,
-          pageid: page.pageid,
+          title: page.title, pageid: page.pageid,
           coordinates: (page.coordinates ?? []).map((c: any) => ({
-            latitude: c.lat, longitude: c.lon,
-            globe: c.globe || 'earth', type: c.type, dim: c.dim, name: c.name
+            latitude: c.lat, longitude: c.lon, globe: c.globe || 'earth',
+            type: c.type, dim: c.dim, name: c.name
           })),
           exists: true
         };
@@ -603,9 +661,7 @@ export class WikipediaClient {
   async testConnectivity(): Promise<any> {
     const start = Date.now();
     try {
-      const data = await this.makeRequest({
-        action: 'query', meta: 'siteinfo', siprop: 'general', format: 'json'
-      });
+      const data = await this.makeRequest({ action: 'query', meta: 'siteinfo', siprop: 'general', format: 'json' });
       const ms = Date.now() - start;
       if (data.query?.general) {
         return {
@@ -613,7 +669,8 @@ export class WikipediaClient {
           base_url: `https://${this.language}.wikipedia.org`,
           language: this.language,
           site_name: data.query.general.sitename || 'Wikipedia',
-          response_time_ms: ms
+          response_time_ms: ms,
+          authenticated: !!this.sessionCookie,
         };
       }
       return { status: 'failed', error: 'Invalid response from Wikipedia API', response_time_ms: ms };
@@ -629,12 +686,10 @@ export class WikipediaClient {
   }
 
   static listSupportedCountries(): Record<string, any> {
-    // Group country/name keys by their language
     const byLanguage: Record<string, string[]> = {};
     for (const [key, lang] of Object.entries(WikipediaClient.COUNTRY_TO_LANGUAGE)) {
       (byLanguage[lang] ??= []).push(key);
     }
-    // Return every valid Wikipedia language with its URL and matching country codes
     const result: Record<string, any> = {};
     for (const lang of WikipediaClient.VALID_LANGUAGE_CODES) {
       result[lang] = {
