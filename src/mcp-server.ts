@@ -110,28 +110,23 @@ export class MCPServer {
 The server automatically resolves English queries to the correct article in the target language — you do NOT need to translate the query yourself.
 
 CRITICAL — query format rules:
-1. Always write the query in English, as a short Wikipedia article title phrase.
-2. Do NOT write full questions or sentences. Wikipedia article titles are short noun phrases.
-3. Do NOT include words like "current", "who is", "what is", "latest", "today", or any question words.
 
-Correct query patterns for people and roles:
-- "President of Sri Lanka"
-- "Prime Minister of Japan"
-- "Chancellor of Germany"
-- "King of Thailand"
+1. Always write the query in English as a short Wikipedia article title phrase.
+2. Do NOT write full questions or sentences.
+3. Do NOT include the word "current", "new", "latest", "recent", "today's", "former", or any other temporal word. Wikipedia article titles never contain these words — they describe the role itself, not who holds it right now.
+4. Do NOT include question words like "who is", "what is", "where is".
 
-Correct query patterns for places and things:
-- "Mount Everest"
-- "Eiffel Tower"
-- "World War II"
-- "Sri Lanka"
+For political roles, the correct pattern is simply: "[Role] of [Country]"
+- ✅ "President of Sri Lanka"  ← correct
+- ✅ "Prime Minister of Japan"  ← correct
+- ❌ "Current President of Sri Lanka"  ← wrong, "current" breaks the search
+- ❌ "Who is the current president of Sri Lanka?"  ← wrong, full question
 
-Examples of bad queries that will fail:
-- "Who is the current president of Sri Lanka?" → use "President of Sri Lanka"
-- "What is the capital of Japan?" → use "Capital of Japan" or just "Tokyo"
-- "Latest news about Sri Lanka" → use "Sri Lanka"
+For general topics, just use the topic name as it would appear as a Wikipedia article title:
+- ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
+- ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
 
-Now search for "${topic}" using the correct short title format in English.`
+Now search for "${topic}" using the correct short title format — no temporal words, no question words, English only.`
               }
             }
           ]
@@ -170,18 +165,20 @@ Every tool accepts optional \`language\` and \`country\` parameters:
 The server automatically resolves English queries to the correct article in the target language. Always write queries in English regardless of the target language.
 
 ## Query Format — Most Important Rule
-Always use short Wikipedia article title phrases. Never use full questions or sentences.
+Always use short Wikipedia article title phrases. Never use full questions, sentences, or temporal words.
+
+Wikipedia article titles describe a role or topic permanently — they never say "current", "new", "latest", or "today's". Strip those words before forming the query.
 
 For political roles use: "[Role] of [Country]"
 - ✅ "President of Sri Lanka"
 - ✅ "Prime Minister of United Kingdom"
 - ✅ "Chancellor of Germany"
+- ❌ "Current President of Sri Lanka" — never include "current"
 - ❌ "Who is the current president of Sri Lanka?"
-- ❌ "What is the name of the UK prime minister?"
 
 For general topics:
 - ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
-- ❌ "Tell me about Mount Everest", "What is the Eiffel Tower?"
+- ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
 
 ## Recommended Workflow
 1. Use **search_wikipedia** to find the right article title
@@ -220,9 +217,12 @@ Different Wikipedia editions often contain:
 - Different sources and citations from local scholarship
 
 ## Query format reminder
-Always use short Wikipedia title phrases in English — the server handles language resolution automatically.
+Always use short Wikipedia title phrases in English — no temporal words, no question words.
 - ✅ "President of Sri Lanka" with country: "LK"
+- ❌ "Current President of Sri Lanka" with country: "LK"
 - ❌ "Who is the current president of Sri Lanka?" with country: "LK"
+
+The server resolves English queries to the correct article in each target language automatically.
 
 ## Suggested approach
 
@@ -268,12 +268,18 @@ Note where editions agree, where they differ, and what unique information each a
         name: 'search_wikipedia',
         description: `Search Wikipedia for articles matching a query.
 
-QUERY FORMAT: Use short Wikipedia article title phrases — not full questions or sentences.
-- Good: "President of Sri Lanka", "Prime Minister of Japan", "Eiffel Tower", "World War II"
-- Bad: "Who is the current president of Sri Lanka?", "What is the Eiffel Tower?"
+QUERY FORMAT: Use short Wikipedia article title phrases — not full questions, sentences, or temporal words.
+
+Do NOT include "current", "new", "latest", "recent", "former", "today's" in the query. Wikipedia article titles never contain these words.
+- ✅ "President of Sri Lanka" — correct
+- ❌ "Current President of Sri Lanka" — wrong, remove "Current"
+- ❌ "Who is the current president of Sri Lanka?" — wrong
 
 For political positions use: "[Role] of [Country]"
-- "President of Sri Lanka", "Prime Minister of United Kingdom", "King of Thailand"
+- "President of Sri Lanka", "Prime Minister of Japan", "Chancellor of Germany"
+
+For general topics use the topic name as a Wikipedia article title:
+- "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
 
 Always write the query in English. The server automatically finds the equivalent article in the target language when a non-English language or country code is provided.`,
         inputSchema: {
@@ -281,7 +287,7 @@ Always write the query in English. The server automatically finds the equivalent
           properties: {
             query: {
               type: 'string',
-              description: 'Short Wikipedia-style title phrase in English, e.g. "President of Sri Lanka" not "Who is the current president of Sri Lanka?"'
+              description: 'Short Wikipedia-style title phrase in English. No temporal words (current/new/latest), no question words. Example: "President of Sri Lanka" not "Current President of Sri Lanka".'
             },
             limit: {
               type: 'number',
