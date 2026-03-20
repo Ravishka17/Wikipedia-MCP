@@ -472,9 +472,32 @@ export class WikipediaClient {
     }));
   }
 
-  async getArticle(title: string): Promise<WikipediaArticle> {
+  async getArticle(title: string, options: { full?: boolean } = {}): Promise<WikipediaArticle> {
     if (!title?.trim()) return { title, pageid: 0, exists: false, error: 'Invalid title provided' };
     try {
+      if (options.full) {
+        // Fetch full uncompressed article via the revisions API (returns complete wikitext as plain text)
+        const data = await this.makeRequest({
+          action: 'query', prop: 'revisions|info|categories',
+          titles: title, rvprop: 'content', rvslots: 'main',
+          rvlimit: 1, inprop: 'url', clshow: '!hidden',
+          redirects: 1, formatversion: 2
+        });
+        if (data.query?.pages) {
+          const page = data.query.pages[0];
+          if (page.missing !== undefined) return { title, pageid: 0, exists: false, error: 'Article not found' };
+          const wikitext = page.revisions?.[0]?.slots?.main?.content ?? '';
+          return {
+            title: page.title, pageid: page.pageid,
+            summary: this.extractSummary(wikitext), text: wikitext, links: [],
+            categories: page.categories?.map((c: any) => c.title) ?? [], exists: true,
+            full: true
+          } as any;
+        }
+        return { title, pageid: 0, exists: false, error: 'Article not found' };
+      }
+
+      // Default: fetch plain text extract (compressed, no wikitext markup)
       const data = await this.makeRequest({
         action: 'query', prop: 'extracts|info|categories',
         titles: title, exintro: false, explaintext: true,
