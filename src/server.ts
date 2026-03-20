@@ -77,6 +77,7 @@ mcpServer.tool('search_wikipedia',
 mcpServer.tool('get_article',
   { 
     title: z.string(),
+    full: z.boolean().optional(),
     language: z.string().optional(),
     country: z.string().optional()
   },
