@@ -1,4 +1,14 @@
 import rateLimit from 'express-rate-limit';
+import type { Request, Response, NextFunction } from 'express';
+
+// ── Server header removal ────────────────────────────────────────────────────
+// The `Server` response header can reveal infrastructure details (e.g.
+// "Server: Vercel") to potential attackers.  This middleware blanks it on
+// every response so no server/framework information is disclosed.
+export function removeServerHeader(_req: Request, res: Response, next: NextFunction): void {
+  res.removeHeader('Server');
+  next();
+}
 
 // ── Rate limiting ────────────────────────────────────────────────────────────
 // LLMs can burst heavily in short windows, so limits are generous per-minute
