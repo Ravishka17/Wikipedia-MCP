@@ -53,28 +53,213 @@ export class MCPServer {
     return this.wikipediaClient;
   }
 
+  // ── Prompt templates ────────────────────────────────────────────────────
+
+  getPromptsList() {
+    return [
+      {
+        name: 'search_in_native_language',
+        description: 'Reminds the assistant to translate search queries into the target Wikipedia language rather than searching in English. For example, when using language "si" (Sinhala), search for "ශ්‍රී ලංකාව" not "Sri Lanka".',
+        arguments: [
+          {
+            name: 'language',
+            description: 'The Wikipedia language code being used (e.g. "si", "ja", "ar")',
+            required: true
+          },
+          {
+            name: 'topic',
+            description: 'The topic the user wants to search for',
+            required: true
+          }
+        ]
+      },
+      {
+        name: 'wikipedia_usage_guide',
+        description: 'A full guide on how to use the Wikipedia MCP tools effectively, including language handling, search best practices, and tool selection.',
+        arguments: []
+      },
+      {
+        name: 'multilingual_research',
+        description: 'Guides the assistant through researching a topic across multiple Wikipedia language editions to get broader or more locally accurate information.',
+        arguments: [
+          {
+            name: 'topic',
+            description: 'The topic to research across languages',
+            required: true
+          }
+        ]
+      }
+    ];
+  }
+
+  getPrompt(name: string, args: Record<string, string> = {}) {
+    switch (name) {
+
+      case 'search_in_native_language': {
+        const language = args.language || 'the target language';
+        const topic = args.topic || 'the requested topic';
+        return {
+          description: 'Instructions for searching Wikipedia in the correct language',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `You are about to search Wikipedia for "${topic}" using language code "${language}".
+
+IMPORTANT: You must translate the search query into the native language of the Wikipedia edition you are searching, not search in English.
+
+Rules:
+1. The search query passed to search_wikipedia must be in the language matching the language code — not in English.
+2. Article titles on non-English Wikipedias are in that language. Searching in English will return no results or wrong results.
+3. If you do not know the native-language term for the topic, first use the English Wikipedia (language: "en") to find the article, then look at its interlanguage links or search the target Wikipedia with a transliterated or translated term.
+
+Examples of correct behavior:
+- language "si" (Sinhala) → search "ශ්‍රී ලංකාව" not "Sri Lanka"
+- language "ja" (Japanese) → search "東京" not "Tokyo"  
+- language "ar" (Arabic) → search "مصر" not "Egypt"
+- language "zh" (Chinese) → search "人工智能" not "Artificial intelligence"
+- language "ko" (Korean) → search "서울" not "Seoul"
+- language "el" (Greek) → search "Αθήνα" not "Athens"
+- language "ru" (Russian) → search "Москва" not "Moscow"
+- language "hi" (Hindi) → search "भारत" not "India"
+- language "fa" (Persian) → search "ایران" not "Iran"
+- language "th" (Thai) → search "กรุงเทพมหานคร" not "Bangkok"
+
+Now search for "${topic}" in language "${language}" using the correct native-language search term.`
+              }
+            }
+          ]
+        };
+      }
+
+      case 'wikipedia_usage_guide': {
+        return {
+          description: 'Full guide for using Wikipedia MCP tools',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `# Wikipedia MCP Usage Guide
+
+## Available Tools
+- **search_wikipedia** — Search for articles by keyword
+- **get_article** — Retrieve full article text
+- **get_summary** — Get the introductory summary of an article
+- **get_sections** — List the sections of an article
+- **get_links** — Get all internal links within an article
+- **get_coordinates** — Get geographic coordinates for place articles
+- **get_related_topics** — Find related articles based on links
+- **summarize_article_for_query** — Get a summary focused on a specific question
+- **summarize_article_section** — Summarize a specific section
+- **extract_key_facts** — Extract bullet-point facts from an article
+- **test_wikipedia_connectivity** — Check if the API is reachable and whether you are authenticated
+- **list_supported_countries** — See all supported language editions and country codes
+
+## Language Selection
+Every tool accepts optional \`language\` and \`country\` parameters:
+- \`language\`: a Wikipedia language code, e.g. "en", "si", "ja", "ar", "zh", "fr"
+- \`country\`: an ISO country code, e.g. "US", "LK", "JP" — automatically mapped to the right language
+
+## Critical Rule: Search in the Target Language
+When using a non-English language, your search query MUST be in that language:
+- ❌ Wrong: search_wikipedia("Sri Lanka", language: "si")
+- ✅ Correct: search_wikipedia("ශ්‍රී ලංකාව", language: "si")
+
+If you don't know the native term, search English Wikipedia first to find the article title, then use interlanguage links or a translated query for the target language.
+
+## Recommended Workflow
+1. Use **search_wikipedia** to find the right article title
+2. Use **get_summary** for a quick overview
+3. Use **get_sections** to understand the article structure
+4. Use **summarize_article_for_query** or **summarize_article_section** for targeted information
+5. Use **extract_key_facts** for a concise bullet list
+6. Use **get_article** only when you need the full text
+
+## Tips
+- Article titles are case-sensitive on some Wikipedias — use search first to get the exact title
+- For geographic topics, **get_coordinates** returns lat/lon you can use with mapping tools
+- **get_related_topics** is useful for discovering context around a subject
+- The "simple" language code gives access to Simple English Wikipedia, which is easier to parse`
+              }
+            }
+          ]
+        };
+      }
+
+      case 'multilingual_research': {
+        const topic = args.topic || 'the requested topic';
+        return {
+          description: 'Guide for researching a topic across multiple Wikipedia language editions',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `Research "${topic}" across multiple Wikipedia language editions for a comprehensive view.
+
+## Why use multiple languages?
+Different Wikipedia editions often contain:
+- Local perspectives and region-specific detail not in English Wikipedia
+- More detailed coverage of topics important to that culture
+- Different sources and citations from local scholarship
+- Information structured differently that may reveal new angles
+
+## Suggested approach
+
+**Step 1 — Start with English**
+Use search_wikipedia("${topic}", language: "en") to get the canonical article title and a baseline summary.
+
+**Step 2 — Identify relevant language editions**
+Consider which languages would have strong coverage of this topic:
+- For topics about a specific country → use that country's language
+- For scientific topics → German ("de"), French ("fr"), and Japanese ("ja") Wikipedias are often detailed
+- For historical topics → use the language of the civilization being studied
+- For regional topics → use the local language
+
+**Step 3 — Search in the native language**
+Translate or transliterate "${topic}" into each target language before searching. Do NOT use the English term in non-English Wikipedia searches.
+
+**Step 4 — Compare and synthesize**
+Note where editions agree, where they differ, and what unique information each adds.
+
+Remember: always pass the native-language search term to search_wikipedia when using non-English language codes.`
+              }
+            }
+          ]
+        };
+      }
+
+      default:
+        throw new Error(`Unknown prompt: ${name}`);
+    }
+  }
+
+  // ── Tool definitions ────────────────────────────────────────────────────
+
   private getToolsList() {
     const commonProps = {
       language: {
         type: 'string',
-        description: 'Wikipedia language code (e.g., "en", "es", "ja")'
+        description: 'Wikipedia language code (e.g., "en", "es", "ja"). When set, search queries and article titles must be in that language — not in English.'
       },
       country: {
         type: 'string',
-        description: 'Country code to infer language (e.g., "US", "JP")'
+        description: 'Country code to infer language (e.g., "US", "JP", "LK"). Automatically mapped to the correct Wikipedia language edition.'
       }
     };
 
     return [
       {
         name: 'search_wikipedia',
-        description: 'Search Wikipedia for articles matching a query',
+        description: 'Search Wikipedia for articles matching a query. IMPORTANT: when using a non-English language code, the query must be in that language (e.g. use "東京" not "Tokyo" for language "ja").',
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
-              description: 'The search term to look up on Wikipedia'
+              description: 'The search term. Must be in the target language when a non-English language is specified.'
             },
             limit: {
               type: 'number',
@@ -96,7 +281,7 @@ export class MCPServer {
           properties: {
             title: {
               type: 'string',
-              description: 'The title of the Wikipedia article'
+              description: 'The title of the Wikipedia article, in the language of the target Wikipedia edition.'
             },
             ...commonProps
           },
@@ -362,6 +547,7 @@ export class MCPServer {
 
     if (!results.length) {
       response.message = 'No search results found. This could indicate connectivity issues, API errors, or simply no matching articles.';
+      response.hint = `If you searched in English on a non-English Wikipedia, try translating the query to language "${client.getLanguage()}" first.`;
     }
 
     return {
