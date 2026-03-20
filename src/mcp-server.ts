@@ -708,11 +708,12 @@ The server automatically resolves each query to the correct article in the speci
 
     // Run all searches in parallel, each with its own client and limit
     const tasks = searches.map(async (s: any) => {
-      // Explicitly extract each field to avoid any reference/parsing issues
-      const query: string = s.query ?? s.q ?? '';
-      const language: string | undefined = s.language;
-      const country: string | undefined = s.country;
-      const limit: number = Math.min(Math.max(parseInt(s.limit) || 10, 1), 500);
+      // Handle both plain string items ("Cat") and object items ({ query: "Cat", language: "en" })
+      const isString = typeof s === 'string';
+      const query: string = isString ? s : (s.query ?? s.q ?? '');
+      const language: string | undefined = isString ? undefined : s.language;
+      const country: string | undefined = isString ? undefined : s.country;
+      const limit: number = isString ? 10 : Math.min(Math.max(parseInt(s.limit) || 10, 1), 500);
 
       if (!query.trim()) {
         return {
