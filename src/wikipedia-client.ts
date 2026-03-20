@@ -338,7 +338,6 @@ export class WikipediaClient {
 
   private async login(): Promise<void> {
     try {
-      // Step 1: get a login token
       const tokenRes = await axios.get(this.baseUrl, {
         params: { action: 'query', meta: 'tokens', type: 'login', format: 'json' },
         headers: { 'User-Agent': this.userAgent() },
@@ -346,10 +345,8 @@ export class WikipediaClient {
       const loginToken = tokenRes.data?.query?.tokens?.logintoken;
       if (!loginToken) throw new Error('Could not retrieve login token');
 
-      // Collect Set-Cookie from token response
       const tokenCookies = this.extractCookies(tokenRes.headers['set-cookie']);
 
-      // Step 2: POST login with bot credentials
       const loginRes = await axios.post(
         this.baseUrl,
         new URLSearchParams({
@@ -374,7 +371,6 @@ export class WikipediaClient {
         return;
       }
 
-      // Merge cookies from both responses
       const loginCookies = this.extractCookies(loginRes.headers['set-cookie']);
       this.sessionCookie = this.mergeCookies(tokenCookies, loginCookies);
       console.log('Wikipedia bot login successful');
@@ -472,11 +468,61 @@ export class WikipediaClient {
     }));
   }
 
+  // Execute multiple searches across different languages in parallel
+  async multiSearch(searches: Array<{
+    query: string;
+    language?: string;
+    country?: string;
+    limit?: number;
+  }>): Promise<Array<{
+    query: string;
+    language: string;
+    results: SearchResult[];
+    status: string;
+    count: number;
+    error?: string;
+  }>> {
+    const tasks = searches.map(async (s) => {
+      try {
+        // Create a temporary client for the specified language/country,
+        // or reuse this client if no override is specified
+        const client = (s.language || s.country)
+          ? new WikipediaClient({
+              language: s.language,
+              country: s.country,
+              enableCache: this.enableCache,
+              botUsername: this.botUsername,
+              botPassword: this.botPassword,
+            })
+          : this;
+        const results = await client.search(s.query, { limit: s.limit || 10 });
+        return {
+          query: s.query,
+          language: client.getLanguage(),
+          results,
+          status: results.length > 0 ? 'success' : 'no_results',
+          count: results.length,
+        };
+      } catch (error: any) {
+        return {
+          query: s.query,
+          language: s.language || s.country || this.language,
+          results: [],
+          status: 'error',
+          count: 0,
+          error: error.message,
+        };
+      }
+    });
+
+    return Promise.all(tasks);
+  }
+
   async getArticle(title: string, options: { full?: boolean } = {}): Promise<WikipediaArticle> {
     if (!title?.trim()) return { title, pageid: 0, exists: false, error: 'Invalid title provided' };
     try {
       if (options.full) {
-        // Fetch full uncompressed article via the revisions API (returns complete wikitext as plain text)
+        // Fetch full uncompressed article via the revisions API
         const data = await this.makeRequest({
           action: 'query', prop: 'revisions|info|categories',
           titles: title, rvprop: 'content', rvslots: 'main',
@@ -497,7 +543,7 @@ export class WikipediaClient {
         return { title, pageid: 0, exists: false, error: 'Article not found' };
       }
 
-      // Default: fetch plain text extract (compressed, no wikitext markup)
+      // Default: plain text extract
       const data = await this.makeRequest({
         action: 'query', prop: 'extracts|info|categories',
         titles: title, exintro: false, explaintext: true,
