@@ -253,7 +253,8 @@ app.post('/mcp', async (req, res) => {
         result: {
           protocolVersion: clientVersion,
           capabilities: {
-            tools: {}
+            tools: {},
+            prompts: {}
           },
           serverInfo: {
             name: 'wikipedia-mcp-server',
@@ -283,6 +284,35 @@ app.post('/mcp', async (req, res) => {
         id: requestData.id,
         result: formatToolResult(result)
       });
+
+    } else if (requestData.method === 'prompts/list') {
+      res.json({
+        jsonrpc: '2.0',
+        id: requestData.id,
+        result: {
+          prompts: mcpHelper.getPromptsList()
+        }
+      });
+
+    } else if (requestData.method === 'prompts/get') {
+      const { name, arguments: args = {} } = requestData.params;
+      try {
+        const prompt = mcpHelper.getPrompt(name, args);
+        res.json({
+          jsonrpc: '2.0',
+          id: requestData.id,
+          result: prompt
+        });
+      } catch (err: any) {
+        res.status(200).json({
+          jsonrpc: '2.0',
+          id: requestData.id,
+          error: {
+            code: -32602,
+            message: err.message
+          }
+        });
+      }
 
     } else {
       // Unknown method with an id — return JSON-RPC error (status 200, not 400)
