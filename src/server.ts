@@ -20,12 +20,18 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Bot credentials — optional. If not set, server works without authentication.
+const botConfig = {
+  botUsername: process.env.WIKIPEDIA_BOT_USERNAME,
+  botPassword: process.env.WIKIPEDIA_BOT_PASSWORD,
+};
+
 // Initialize Wikipedia client with environment variables
 const wikipediaClient = new WikipediaClient({
   language: process.env.WIKIPEDIA_LANGUAGE || 'en',
   country: process.env.WIKIPEDIA_COUNTRY,
   enableCache: process.env.ENABLE_CACHE === 'true',
-  accessToken: process.env.WIKIPEDIA_ACCESS_TOKEN
+  ...botConfig
 });
 
 // Initialize MCPServer helper (for tool logic reuse)
@@ -33,7 +39,7 @@ const mcpHelper = new MCPServer({
   language: process.env.WIKIPEDIA_LANGUAGE || 'en',
   country: process.env.WIKIPEDIA_COUNTRY,
   enableCache: process.env.ENABLE_CACHE === 'true',
-  accessToken: process.env.WIKIPEDIA_ACCESS_TOKEN
+  ...botConfig
 });
 
 // Initialize SDK McpServer
@@ -226,6 +232,7 @@ app.get('/health', (req, res) => {
 // MCP HTTP Transport Endpoint (POST for direct MCP communication)
 app.post('/mcp', async (req, res) => {
   console.log('MCP HTTP transport request received');
+  res.setHeader('Content-Type', 'application/json');
   
   try {
     const requestData = req.body;
