@@ -59,7 +59,7 @@ export class MCPServer {
     return [
       {
         name: 'search_in_native_language',
-        description: 'Reminds the assistant to translate search queries into the target Wikipedia language rather than searching in English. For example, when using language "si" (Sinhala), search for "ශ්‍රී ලංකාව" not "Sri Lanka".',
+        description: 'Guides the assistant on how to search Wikipedia correctly when a non-English language or country code is used. The server handles language resolution automatically — always write queries in English using short Wikipedia-style title phrases.',
         arguments: [
           {
             name: 'language',
@@ -75,12 +75,12 @@ export class MCPServer {
       },
       {
         name: 'wikipedia_usage_guide',
-        description: 'A full guide on how to use the Wikipedia MCP tools effectively, including language handling, search best practices, and tool selection.',
+        description: 'A full guide on how to use the Wikipedia MCP tools effectively, including query format, language handling, and tool selection.',
         arguments: []
       },
       {
         name: 'multilingual_research',
-        description: 'Guides the assistant through researching a topic across multiple Wikipedia language editions to get broader or more locally accurate information.',
+        description: 'Guides the assistant through researching a topic across multiple Wikipedia language editions.',
         arguments: [
           {
             name: 'topic',
@@ -99,7 +99,7 @@ export class MCPServer {
         const language = args.language || 'the target language';
         const topic = args.topic || 'the requested topic';
         return {
-          description: 'Instructions for searching Wikipedia in the correct language',
+          description: 'Instructions for searching Wikipedia correctly with a non-English language code',
           messages: [
             {
               role: 'user',
@@ -107,26 +107,31 @@ export class MCPServer {
                 type: 'text',
                 text: `You are about to search Wikipedia for "${topic}" using language code "${language}".
 
-IMPORTANT: You must translate the search query into the native language of the Wikipedia edition you are searching, not search in English.
+The server automatically resolves English queries to the correct article in the target language — you do NOT need to translate the query yourself.
 
-Rules:
-1. The search query passed to search_wikipedia must be in the language matching the language code — not in English.
-2. Article titles on non-English Wikipedias are in that language. Searching in English will return no results or wrong results.
-3. If you do not know the native-language term for the topic, first use the English Wikipedia (language: "en") to find the article, then look at its interlanguage links or search the target Wikipedia with a transliterated or translated term.
+CRITICAL — query format rules:
+1. Always write the query in English, as a short Wikipedia article title phrase.
+2. Do NOT write full questions or sentences. Wikipedia article titles are short noun phrases.
+3. Do NOT include words like "current", "who is", "what is", "latest", "today", or any question words.
 
-Examples of correct behavior:
-- language "si" (Sinhala) → search "ශ්‍රී ලංකාව" not "Sri Lanka"
-- language "ja" (Japanese) → search "東京" not "Tokyo"  
-- language "ar" (Arabic) → search "مصر" not "Egypt"
-- language "zh" (Chinese) → search "人工智能" not "Artificial intelligence"
-- language "ko" (Korean) → search "서울" not "Seoul"
-- language "el" (Greek) → search "Αθήνα" not "Athens"
-- language "ru" (Russian) → search "Москва" not "Moscow"
-- language "hi" (Hindi) → search "भारत" not "India"
-- language "fa" (Persian) → search "ایران" not "Iran"
-- language "th" (Thai) → search "กรุงเทพมหานคร" not "Bangkok"
+Correct query patterns for people and roles:
+- "President of Sri Lanka"
+- "Prime Minister of Japan"
+- "Chancellor of Germany"
+- "King of Thailand"
 
-Now search for "${topic}" in language "${language}" using the correct native-language search term.`
+Correct query patterns for places and things:
+- "Mount Everest"
+- "Eiffel Tower"
+- "World War II"
+- "Sri Lanka"
+
+Examples of bad queries that will fail:
+- "Who is the current president of Sri Lanka?" → use "President of Sri Lanka"
+- "What is the capital of Japan?" → use "Capital of Japan" or just "Tokyo"
+- "Latest news about Sri Lanka" → use "Sri Lanka"
+
+Now search for "${topic}" using the correct short title format in English.`
               }
             }
           ]
@@ -162,12 +167,21 @@ Every tool accepts optional \`language\` and \`country\` parameters:
 - \`language\`: a Wikipedia language code, e.g. "en", "si", "ja", "ar", "zh", "fr"
 - \`country\`: an ISO country code, e.g. "US", "LK", "JP" — automatically mapped to the right language
 
-## Critical Rule: Search in the Target Language
-When using a non-English language, your search query MUST be in that language:
-- ❌ Wrong: search_wikipedia("Sri Lanka", language: "si")
-- ✅ Correct: search_wikipedia("ශ්‍රී ලංකාව", language: "si")
+The server automatically resolves English queries to the correct article in the target language. Always write queries in English regardless of the target language.
 
-If you don't know the native term, search English Wikipedia first to find the article title, then use interlanguage links or a translated query for the target language.
+## Query Format — Most Important Rule
+Always use short Wikipedia article title phrases. Never use full questions or sentences.
+
+For political roles use: "[Role] of [Country]"
+- ✅ "President of Sri Lanka"
+- ✅ "Prime Minister of United Kingdom"
+- ✅ "Chancellor of Germany"
+- ❌ "Who is the current president of Sri Lanka?"
+- ❌ "What is the name of the UK prime minister?"
+
+For general topics:
+- ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
+- ❌ "Tell me about Mount Everest", "What is the Eiffel Tower?"
 
 ## Recommended Workflow
 1. Use **search_wikipedia** to find the right article title
@@ -178,10 +192,10 @@ If you don't know the native term, search English Wikipedia first to find the ar
 6. Use **get_article** only when you need the full text
 
 ## Tips
-- Article titles are case-sensitive on some Wikipedias — use search first to get the exact title
-- For geographic topics, **get_coordinates** returns lat/lon you can use with mapping tools
+- Article titles returned in search results are the exact titles to use in subsequent tool calls
+- For geographic topics, **get_coordinates** returns lat/lon
 - **get_related_topics** is useful for discovering context around a subject
-- The "simple" language code gives access to Simple English Wikipedia, which is easier to parse`
+- The "simple" language code gives access to Simple English Wikipedia`
               }
             }
           ]
@@ -204,27 +218,28 @@ Different Wikipedia editions often contain:
 - Local perspectives and region-specific detail not in English Wikipedia
 - More detailed coverage of topics important to that culture
 - Different sources and citations from local scholarship
-- Information structured differently that may reveal new angles
+
+## Query format reminder
+Always use short Wikipedia title phrases in English — the server handles language resolution automatically.
+- ✅ "President of Sri Lanka" with country: "LK"
+- ❌ "Who is the current president of Sri Lanka?" with country: "LK"
 
 ## Suggested approach
 
 **Step 1 — Start with English**
-Use search_wikipedia("${topic}", language: "en") to get the canonical article title and a baseline summary.
+search_wikipedia("${topic}", language: "en") to get the baseline article and confirm the correct title.
 
 **Step 2 — Identify relevant language editions**
-Consider which languages would have strong coverage of this topic:
-- For topics about a specific country → use that country's language
-- For scientific topics → German ("de"), French ("fr"), and Japanese ("ja") Wikipedias are often detailed
-- For historical topics → use the language of the civilization being studied
-- For regional topics → use the local language
+Consider which languages would have strong coverage:
+- Topics about a specific country → use that country's code (e.g. country: "LK" for Sri Lanka)
+- Scientific topics → "de" (German), "fr" (French), "ja" (Japanese) are often detailed
+- Historical topics → use the language of the civilization being studied
 
-**Step 3 — Search in the native language**
-Translate or transliterate "${topic}" into each target language before searching. Do NOT use the English term in non-English Wikipedia searches.
+**Step 3 — Search with the same English query**
+Pass the same short English query with a different country or language parameter. The server will find the equivalent article in that language edition automatically.
 
 **Step 4 — Compare and synthesize**
-Note where editions agree, where they differ, and what unique information each adds.
-
-Remember: always pass the native-language search term to search_wikipedia when using non-English language codes.`
+Note where editions agree, where they differ, and what unique information each adds.`
               }
             }
           ]
@@ -236,30 +251,37 @@ Remember: always pass the native-language search term to search_wikipedia when u
     }
   }
 
-  // ── Tool definitions ────────────────────────────────────────────────────
-
   private getToolsList() {
     const commonProps = {
       language: {
         type: 'string',
-        description: 'Wikipedia language code (e.g., "en", "es", "ja"). When set, search queries and article titles must be in that language — not in English.'
+        description: 'Wikipedia language code (e.g., "en", "si", "ja"). The server automatically resolves English queries to the target language — always write queries in English.'
       },
       country: {
         type: 'string',
-        description: 'Country code to infer language (e.g., "US", "JP", "LK"). Automatically mapped to the correct Wikipedia language edition.'
+        description: 'Country code to infer language (e.g., "US", "LK", "JP"). Automatically mapped to the correct Wikipedia language edition.'
       }
     };
 
     return [
       {
         name: 'search_wikipedia',
-        description: 'Search Wikipedia for articles matching a query. IMPORTANT: when using a non-English language code, the query must be in that language (e.g. use "東京" not "Tokyo" for language "ja").',
+        description: `Search Wikipedia for articles matching a query.
+
+QUERY FORMAT: Use short Wikipedia article title phrases — not full questions or sentences.
+- Good: "President of Sri Lanka", "Prime Minister of Japan", "Eiffel Tower", "World War II"
+- Bad: "Who is the current president of Sri Lanka?", "What is the Eiffel Tower?"
+
+For political positions use: "[Role] of [Country]"
+- "President of Sri Lanka", "Prime Minister of United Kingdom", "King of Thailand"
+
+Always write the query in English. The server automatically finds the equivalent article in the target language when a non-English language or country code is provided.`,
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
-              description: 'The search term. Must be in the target language when a non-English language is specified.'
+              description: 'Short Wikipedia-style title phrase in English, e.g. "President of Sri Lanka" not "Who is the current president of Sri Lanka?"'
             },
             limit: {
               type: 'number',
@@ -281,7 +303,7 @@ Remember: always pass the native-language search term to search_wikipedia when u
           properties: {
             title: {
               type: 'string',
-              description: 'The title of the Wikipedia article, in the language of the target Wikipedia edition.'
+              description: 'The title of the Wikipedia article'
             },
             ...commonProps
           },
@@ -547,7 +569,6 @@ Remember: always pass the native-language search term to search_wikipedia when u
 
     if (!results.length) {
       response.message = 'No search results found. This could indicate connectivity issues, API errors, or simply no matching articles.';
-      response.hint = `If you searched in English on a non-English Wikipedia, try translating the query to language "${client.getLanguage()}" first.`;
     }
 
     return {
