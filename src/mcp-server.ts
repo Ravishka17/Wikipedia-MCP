@@ -189,13 +189,15 @@ Use multi_search_wikipedia instead of calling search_wikipedia multiple times wh
 - Search several different topics in one call
 - Research a subject across multiple Wikipedia language editions efficiently
 
+Each search in the array can have its own query, language, country, and limit.
+
 Example — searching "President of Sri Lanka" in English, Sinhala, and Tamil simultaneously:
 \`\`\`
 multi_search_wikipedia({
   searches: [
-    { query: "President of Sri Lanka", language: "en" },
-    { query: "President of Sri Lanka", country: "LK" },
-    { query: "President of Sri Lanka", language: "ta" }
+    { query: "President of Sri Lanka", language: "en", limit: 3 },
+    { query: "President of Sri Lanka", country: "LK", limit: 3 },
+    { query: "President of Sri Lanka", language: "ta", limit: 3 }
   ]
 })
 \`\`\`
@@ -251,15 +253,15 @@ Always use short Wikipedia title phrases in English — no temporal words, no qu
 The server resolves English queries to the correct article in each target language automatically.
 
 ## Use multi_search_wikipedia for efficiency
-Instead of calling search_wikipedia once per language, use a single multi_search_wikipedia call to run all searches in parallel:
+Instead of calling search_wikipedia once per language, use a single multi_search_wikipedia call to run all searches in parallel. Each search can specify its own limit.
 
 \`\`\`
 multi_search_wikipedia({
   searches: [
-    { query: "${topic}", language: "en" },
-    { query: "${topic}", language: "si" },
-    { query: "${topic}", language: "ta" },
-    { query: "${topic}", language: "ja" }
+    { query: "${topic}", language: "en", limit: 5 },
+    { query: "${topic}", language: "si", limit: 3 },
+    { query: "${topic}", language: "ta", limit: 3 },
+    { query: "${topic}", language: "ja", limit: 3 }
   ]
 })
 \`\`\`
@@ -352,6 +354,8 @@ Use this when you need to:
 - Search multiple different topics in one call
 - Research a topic across several Wikipedia language editions efficiently
 
+Each search in the array can have its own query, language, country, and limit.
+
 QUERY FORMAT: Same rules as search_wikipedia — short title phrases in English, no temporal words, no question words.
 The server automatically resolves each query to the correct article in the specified language.`,
         inputSchema: {
@@ -377,7 +381,7 @@ The server automatically resolves each query to the correct article in the speci
                   },
                   limit: {
                     type: 'number',
-                    description: 'Maximum results for this search (1-500)',
+                    description: 'Maximum results for this individual search (1-500). Defaults to 10 if not specified.',
                     default: 10,
                     minimum: 1,
                     maximum: 500
@@ -702,7 +706,58 @@ The server automatically resolves each query to the correct article in the speci
       };
     }
 
-    const results = await this.wikipediaClient.multiSearch(searches);
+    // Run all searches in parallel, each with its own client and limit
+    const tasks = searches.map(async (s: any) => {
+      // Explicitly extract each field to avoid any reference/parsing issues
+      const query: string = s.query ?? s.q ?? '';
+      const language: string | undefined = s.language;
+      const country: string | undefined = s.country;
+      const limit: number = Math.min(Math.max(parseInt(s.limit) || 10, 1), 500);
+
+      if (!query.trim()) {
+        return {
+          query,
+          language: language || country || this.wikipediaClient.getLanguage(),
+          results: [],
+          status: 'error',
+          count: 0,
+          error: 'Empty query'
+        };
+      }
+
+      try {
+        const client = (language || country)
+          ? new WikipediaClient({
+              language,
+              country,
+              enableCache: false,
+              botUsername: this.botUsername,
+              botPassword: this.botPassword,
+            })
+          : this.wikipediaClient;
+
+        const results = await client.search(query, { limit });
+
+        return {
+          query,
+          language: client.getLanguage(),
+          results,
+          status: results.length > 0 ? 'success' : 'no_results',
+          count: results.length
+        };
+      } catch (error: any) {
+        return {
+          query,
+          language: language || country || this.wikipediaClient.getLanguage(),
+          results: [],
+          status: 'error',
+          count: 0,
+          error: error.message
+        };
+      }
+    });
+
+    const results = await Promise.all(tasks);
 
     return {
       content: [
