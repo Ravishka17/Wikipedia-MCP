@@ -145,8 +145,8 @@ Now search for "${topic}" using the correct short title format — no temporal w
 
 ## Available Tools
 - **search_wikipedia** — Search for articles by keyword
-- **get_article** — Retrieve full article text
-- **get_summary** — Get the introductory summary of an article
+- **get_article** — Retrieve article text. Use \`full: true\` to get the complete uncompressed wikitext of the entire article including all sections. Without it, returns a plain text extract.
+- **get_summary** — Get only the introductory summary of an article
 - **get_sections** — List the sections of an article
 - **get_links** — Get all internal links within an article
 - **get_coordinates** — Get geographic coordinates for place articles
@@ -180,13 +180,19 @@ For general topics:
 - ✅ "Mount Everest", "Eiffel Tower", "World War II", "Sri Lanka"
 - ❌ "Tell me about Mount Everest", "Latest news about Sri Lanka"
 
+## When to use get_article with full: true
+By default, **get_article** returns a plain text extract of the article which may not include every section. Pass \`full: true\` when you need:
+- The complete article with every section and subsection
+- Raw wikitext including tables, infoboxes, and references
+- Deep research where partial content is not sufficient
+
 ## Recommended Workflow
 1. Use **search_wikipedia** to find the right article title
 2. Use **get_summary** for a quick overview
 3. Use **get_sections** to understand the article structure
 4. Use **summarize_article_for_query** or **summarize_article_section** for targeted information
 5. Use **extract_key_facts** for a concise bullet list
-6. Use **get_article** only when you need the full text
+6. Use **get_article** (with \`full: true\` if needed) when you need the full text
 
 ## Tips
 - Article titles returned in search results are the exact titles to use in subsequent tool calls
@@ -238,7 +244,10 @@ Consider which languages would have strong coverage:
 **Step 3 — Search with the same English query**
 Pass the same short English query with a different country or language parameter. The server will find the equivalent article in that language edition automatically.
 
-**Step 4 — Compare and synthesize**
+**Step 4 — Get the full article if needed**
+Use get_article with \`full: true\` to retrieve the complete uncompressed wikitext when a partial extract is not enough.
+
+**Step 5 — Compare and synthesize**
 Note where editions agree, where they differ, and what unique information each adds.`
               }
             }
@@ -303,13 +312,18 @@ Always write the query in English. The server automatically finds the equivalent
       },
       {
         name: 'get_article',
-        description: 'Get the full content of a Wikipedia article',
+        description: 'Get the content of a Wikipedia article. By default returns a plain text extract. Pass full: true to get the complete uncompressed article including all sections and wikitext markup — use this when the default extract is missing sections or you need the entire article.',
         inputSchema: {
           type: 'object',
           properties: {
             title: {
               type: 'string',
               description: 'The title of the Wikipedia article'
+            },
+            full: {
+              type: 'boolean',
+              description: 'Set to true to retrieve the complete uncompressed wikitext of the entire article. Default is false which returns a plain text extract.',
+              default: false
             },
             ...commonProps
           },
@@ -588,7 +602,7 @@ Always write the query in English. The server automatically finds the equivalent
   }
 
   private async handleGetArticle(args: any) {
-    const { title } = args;
+    const { title, full = false } = args;
     const client = this.getClient(args);
 
     if (!title || !title.trim()) {
@@ -606,7 +620,7 @@ Always write the query in English. The server automatically finds the equivalent
       };
     }
 
-    const article = await client.getArticle(title);
+    const article = await client.getArticle(title, { full });
 
     return {
       content: [
