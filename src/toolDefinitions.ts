@@ -36,8 +36,12 @@ To search multiple languages at once, use multi_search_wikipedia instead.`,
         properties: {
           query: {
             type: 'string',
-            description: 'Short Wikipedia-style title phrase in English. No temporal words (current/new/latest), no question words. Example: "President of Sri Lanka" not "Current President of Sri Lanka".',
-            maxLength: 500
+            description: 'Short Wikipedia-style title phrase in English. No temporal words (current/new/latest), no question words. Example: "President of Sri Lanka" not "Current President of Sri Lanka". Input is sanitized server-side; SQL keywords and control characters are stripped before processing.',
+            maxLength: 500,
+            // Blocks ASCII control chars (except tab/LF/CR) and semicolons —
+            // the primary SQL injection delimiter — at the schema level.
+            // Runtime sanitization in handlers.ts strips additional patterns.
+            pattern: '^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f;]*$'
           },
           limit: {
             type: 'number',
@@ -224,8 +228,12 @@ The server automatically resolves each query to the correct article in the speci
           },
           query: {
             type: 'string',
-            description: 'The query to focus the summary on',
-            maxLength: 500
+            description: 'The topic or question to focus the summary on. Input is sanitized server-side; SQL keywords and control characters are stripped before processing.',
+            maxLength: 500,
+            // Blocks ASCII control chars (except tab/LF/CR) and semicolons —
+            // the primary SQL injection delimiter — at the schema level.
+            // Runtime sanitization in handlers.ts strips additional patterns.
+            pattern: '^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f;]*$'
           },
           max_length: {
             type: 'number',
