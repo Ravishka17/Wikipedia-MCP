@@ -10,8 +10,8 @@
     "start": "node dist/server.js",
     "vercel-build": "tsc"
   },
-  "keywords": ["mcp", "wikipedia", "model-context-protocol", "ai", "llm", "vercel"],
-  "author": "Wikipedia MCP Vercel Team",
+  "keywords": ["mcp", "model-context-protocol", "wikipedia", "typescript", "vercel", "serverless", "ai", "llm"],
+  "author": "Ravishka",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
