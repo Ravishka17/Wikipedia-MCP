@@ -1,137 +1,101 @@
-import { Application } from 'express';
+import { Application, Request, Response } from 'express';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { MCPServer } from '../mcp-server.js';
 import { mcpLimiter } from '../middleware.js';
-import { formatToolResult } from '../utils.js';
+import { registerTools, registerPrompts } from '../toolRegistrations.js';
+
+// ── Per-request server factory ────────────────────────────────────────────────
+// Vercel's serverless model is inherently stateless — there is no persistent
+// process between requests.  The correct pattern for Streamable HTTP on a
+// stateless host is to create a fresh McpServer + transport for every request,
+// delegating all actual logic to the stateless mcpHelper instance.
+function createRequestServer(mcpHelper: MCPServer): McpServer {
+  const server = new McpServer({
+    name: 'wikipedia-mcp-server',
+    version: '1.0.0'
+  });
+  registerTools(server, mcpHelper);
+  registerPrompts(server, mcpHelper);
+  return server;
+}
 
 export function registerMcpRoutes(app: Application, mcpHelper: MCPServer): void {
 
-  // Legacy /messages endpoint
-  app.post('/messages', async (req, res) => {
-    console.log('MCP messages endpoint called');
-    res.status(200).json({
-      message: "Use POST /mcp for MCP protocol communication. SSE is not supported on Vercel.",
-      instruction: "Please connect using HTTP transport to the /mcp endpoint"
+  // ── POST /mcp — client → server messages (the primary MCP channel) ─────────
+  // Each request gets its own transport with sessionIdGenerator: undefined so
+  // no Mcp-Session-Id header is issued and session management is disabled.
+  // This is the correct mode for stateless/serverless deployments.
+  app.post('/mcp', mcpLimiter, async (req: Request, res: Response) => {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined   // stateless — no session ID issued
     });
-  });
 
-  // MCP HTTP Transport Endpoint (POST for direct MCP communication)
-  app.post('/mcp', mcpLimiter, async (req, res) => {
-    console.log('MCP HTTP transport request received');
-    res.setHeader('Content-Type', 'application/json');
+    const server = createRequestServer(mcpHelper);
+
+    // Clean up once the HTTP response closes (whether normally or abruptly)
+    res.on('close', () => {
+      transport.close().catch(() => {});
+      server.close().catch(() => {});
+    });
 
     try {
-      const requestData = req.body;
-      console.log('MCP Request:', JSON.stringify(requestData, null, 2));
-
-      // Notifications have no "id" — return 202 Accepted with no body
-      if (requestData.id === undefined || requestData.id === null) {
-        res.status(202).end();
-        return;
-      }
-
-      if (requestData.method === 'initialize') {
-        // Echo back the client's requested protocolVersion (required by spec)
-        const clientVersion = requestData.params?.protocolVersion || '2024-11-05';
-        res.json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          result: {
-            protocolVersion: clientVersion,
-            capabilities: {
-              tools: {},
-              prompts: {}
-            },
-            serverInfo: {
-              name: 'wikipedia-mcp-server',
-              version: '1.0.0'
-            }
-          }
-        });
-
-      } else if (requestData.method === 'ping') {
-        // Some clients send a ping after initialize
-        res.json({ jsonrpc: '2.0', id: requestData.id, result: {} });
-
-      } else if (requestData.method === 'tools/list') {
-        res.json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          result: {
-            tools: mcpHelper.getServerInfo().tools
-          }
-        });
-
-      } else if (requestData.method === 'tools/call') {
-        const { name, arguments: args } = requestData.params;
-        const result = await mcpHelper.executeTool(name, args);
-        res.json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          result: formatToolResult(result)
-        });
-
-      } else if (requestData.method === 'prompts/list') {
-        res.json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          result: {
-            prompts: mcpHelper.getPromptsList()
-          }
-        });
-
-      } else if (requestData.method === 'prompts/get') {
-        const { name, arguments: args = {} } = requestData.params;
-        try {
-          const prompt = mcpHelper.getPrompt(name, args);
-          res.json({
-            jsonrpc: '2.0',
-            id: requestData.id,
-            result: prompt
-          });
-        } catch (err: any) {
-          res.status(200).json({
-            jsonrpc: '2.0',
-            id: requestData.id,
-            error: {
-              code: -32602,
-              message: err.message
-            }
-          });
-        }
-
-      } else {
-        // Unknown method with an id — return JSON-RPC error (status 200, not 400)
-        res.status(200).json({
-          jsonrpc: '2.0',
-          id: requestData.id,
-          error: {
-            code: -32601,
-            message: `Method not found: ${requestData.method}`
-          }
-        });
-      }
-
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
     } catch (error) {
-      console.error('Error handling MCP request:', error);
-      res.status(200).json({
-        jsonrpc: '2.0',
-        id: req.body?.id || null,
-        error: {
-          code: -32603,
-          message: 'Internal error',
-          data: error instanceof Error ? error.message : String(error)
-        }
-      });
+      console.error('MCP POST error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32603, message: 'Internal server error' }
+        });
+      }
     }
   });
 
-  // GET /mcp — Streamable HTTP spec: return 405 to signal SSE not supported
-  // This tells clients to use HTTP transport (POST only), not SSE
-  app.get('/mcp', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.status(405).json({
-      error: 'Method Not Allowed',
-      message: 'This server uses Streamable HTTP transport. Use POST /mcp for MCP communication.'
+  // ── GET /mcp — SSE channel for server-initiated messages ──────────────────
+  // The Streamable HTTP spec (2025-03-26) allows clients to open a GET SSE
+  // stream so the server can push notifications without an in-flight POST.
+  // In stateless mode the transport opens the stream but no session-scoped
+  // notifications are queued — this is fine for Wikipedia (read-only, no
+  // server-push).  On Vercel the connection will close when the serverless
+  // function times out; clients reconnect automatically.
+  app.get('/mcp', mcpLimiter, async (req: Request, res: Response) => {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined
+    });
+
+    const server = createRequestServer(mcpHelper);
+
+    res.on('close', () => {
+      transport.close().catch(() => {});
+      server.close().catch(() => {});
+    });
+
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error('MCP GET/SSE error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    }
+  });
+
+  // ── DELETE /mcp — session termination ─────────────────────────────────────
+  // In stateless mode there are no server-side sessions to tear down.
+  // Acknowledge the request so spec-compliant clients don't see an error.
+  app.delete('/mcp', (_req: Request, res: Response) => {
+    res.status(200).end();
+  });
+
+  // ── Legacy /messages shim ──────────────────────────────────────────────────
+  app.post('/messages', (_req: Request, res: Response) => {
+    res.status(200).json({
+      message: 'Use POST /mcp for MCP protocol communication.',
+      instruction: 'Connect via Streamable HTTP transport (POST /mcp).'
     });
   });
 }
