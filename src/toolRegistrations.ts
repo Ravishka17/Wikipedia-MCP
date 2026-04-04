@@ -1,7 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { GetPromptResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { MCPServer } from './mcp-server.js';
 import { formatToolResult } from './utils.js';
+
+// ── Tool registrations ────────────────────────────────────────────────────────
 
 export function registerTools(mcpServer: McpServer, mcpHelper: MCPServer): void {
   mcpServer.tool('search_wikipedia',
@@ -169,4 +172,41 @@ export function registerTools(mcpServer: McpServer, mcpHelper: MCPServer): void 
       return formatToolResult(result);
     }
   );
+}
+
+// ── Prompt registrations ──────────────────────────────────────────────────────
+// Registers the three prompts defined in prompts.ts with the SDK McpServer so
+// they are advertised via prompts/list and served via prompts/get over the
+// Streamable HTTP transport, just like tools.
+
+export function registerPrompts(mcpServer: McpServer, mcpHelper: MCPServer): void {
+  const promptDefs = mcpHelper.getPromptsList();
+
+  for (const def of promptDefs) {
+    const args = def.arguments ?? [];
+
+    if (args.length === 0) {
+      // No parameters
+      mcpServer.registerPrompt(
+        def.name,
+        { description: def.description },
+        async () => mcpHelper.getPrompt(def.name, {}) as GetPromptResult
+      );
+    } else {
+      // Build a Zod schema from the argument definitions
+      const argsSchema: Record<string, z.ZodString | z.ZodOptional<z.ZodString>> = {};
+      for (const arg of args) {
+        argsSchema[arg.name] = arg.required
+          ? z.string().describe(arg.description ?? arg.name)
+          : z.string().optional().describe(arg.description ?? arg.name) as z.ZodOptional<z.ZodString>;
+      }
+
+      mcpServer.registerPrompt(
+        def.name,
+        { description: def.description, argsSchema },
+        async (promptArgs) =>
+          mcpHelper.getPrompt(def.name, promptArgs as Record<string, string>) as GetPromptResult
+      );
+    }
+  }
 }
