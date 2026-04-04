@@ -1,334 +1,208 @@
-# Wikipedia MCP Server for Vercel
+# Wikipedia MCP Server
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel)
 
-A high-performance Model Context Protocol (MCP) server that provides comprehensive Wikipedia access for AI assistants. This TypeScript implementation is designed for deployment on Vercel and offers all the functionality of the original Python version with enhanced performance and scalability.
+A Model Context Protocol (MCP) server that provides comprehensive Wikipedia access for AI assistants. Built in TypeScript, deployed on Vercel, and fully compatible with the **MCP Streamable HTTP transport** (protocol version `2025-03-26`).
 
 ## Features
 
-- 🔍 **Advanced Search**: Find Wikipedia articles with intelligent ranking
-- 📄 **Full Article Access**: Retrieve complete article content with metadata
-- 📝 **Smart Summaries**: Get concise, focused summaries tailored to specific queries
-- 🗂️ **Section Analysis**: Extract and summarize specific article sections
-- 🔗 **Link Discovery**: Find related articles and cross-references
-- 🌍 **Multi-language Support**: Access Wikipedia in 50+ languages and 140+ country variants dynamically
-- 📍 **Geographic Data**: Extract coordinates and location information
-- 🎯 **Fact Extraction**: Intelligent extraction of key facts from articles
-- ⚡ **Performance Optimized**: Caching, rate limiting, and optimized API calls
-- 🔧 **Developer Friendly**: Comprehensive API and CLI tools
-- 🚀 **Vercel Ready**: Optimized for serverless deployment with HTTP transport support
+- 🔍 **Advanced Search** — find articles with relevance ranking
+- 📄 **Full Article Access** — plain text extracts or complete wikitext
+- 📝 **Smart Summaries** — concise summaries tailored to a specific query
+- 🗂️ **Section Analysis** — extract and summarize individual sections
+- 🔗 **Link Discovery** — internal links and related articles
+- 🌍 **Multi-language** — 50+ language codes, 140+ country codes, resolved automatically
+- 🔀 **Parallel Search** — `multi_search_wikipedia` runs multiple queries simultaneously
+- 🎯 **Fact Extraction** — structured key-fact lists from any article
+- 📍 **Coordinates** — lat/lon for geographic articles
+- ⚡ **Streamable HTTP** — full MCP transport support (POST + GET SSE + DELETE)
+- 🔒 **Security hardened** — input sanitization, tiered rate limiting, no `Server` header
+- 🚀 **Vercel ready** — stateless serverless deployment, zero cold-start friction
+
+---
 
 ## Quick Start
 
-### 1. Clone and Deploy
+### 1. Deploy
 
 ```bash
-# Clone the repository
 git clone https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel.git
 cd wikipedia-mcp-vercel
-
-# Deploy to Vercel
 vercel
-
-# Or use the Vercel button above
 ```
 
-### 2. Connect Your AI Assistant
+Or use the **Deploy with Vercel** button above.
 
-**Important**: Vercel's serverless platform does not support Server-Sent Events (SSE) due to its stateless architecture. Use **HTTP Transport** instead.
+### 2. Connect your AI client
 
-**HTTP Endpoint**: `https://your-app.vercel.app/mcp`
+The server implements **MCP Streamable HTTP transport** (`2025-03-26`).  
+Both the POST channel (client → server) and the GET SSE channel (server → client) are supported.
 
-#### Claude Desktop Configuration
+**MCP endpoint:** `https://your-app.vercel.app/mcp`
+
+#### Claude Desktop
 
 ```json
 {
   "mcpServers": {
     "wikipedia": {
       "type": "http",
-      "url": "https://your-app.vercel.app/mcp",
-      "transport": "http"
+      "url": "https://your-app.vercel.app/mcp"
     }
   }
 }
 ```
 
-#### For Other MCP Clients
+#### Claude Code / CLI
 
-Configure your client to connect via HTTP POST to the `/mcp` endpoint.
-
-**Note**: See [MCP_CONNECTION_GUIDE.md](./MCP_CONNECTION_GUIDE.md) for detailed connection instructions and troubleshooting.
-
-### 3. Environment Variables (Optional)
-
-```env
-# Enable caching for better performance
-ENABLE_CACHE=true
-
-# Wikipedia API access token (optional, for rate limiting)
-WIKIPEDIA_ACCESS_TOKEN=your_token_here
-
-# Default Language (fallback if not specified in tool calls)
-WIKIPEDIA_LANGUAGE=en
+```bash
+claude mcp add wikipedia --transport http https://your-app.vercel.app/mcp
 ```
 
-### 4. Test Your Deployment
+#### Any MCP client (generic)
+
+Configure the client with transport type `streamable-http` and the endpoint URL above.  
+The server uses **stateless mode** (no `Mcp-Session-Id` header), which is correct and expected for serverless deployments.
+
+### 3. Environment variables (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `WIKIPEDIA_LANGUAGE` | `en` | Wikipedia language code (e.g. `ja`, `es`, `de`) |
+| `WIKIPEDIA_COUNTRY` | `US` | Country code → language mapping (e.g. `JP`, `CN`, `LK`) |
+| `ENABLE_CACHE` | `false` | In-memory cache (useful for local dev) |
+| `WIKIPEDIA_BOT_USERNAME` | — | Bot account username (`Account@BotName`) |
+| `WIKIPEDIA_BOT_PASSWORD` | — | Bot account password |
+| `PORT` | `8000` | Local dev port (ignored by Vercel) |
+
+Copy `.env.example` → `.env` for local development.
+
+### 4. Verify
 
 ```bash
 # Health check
 curl https://your-app.vercel.app/health
 
-# MCP server info (GET)
-curl https://your-app.vercel.app/mcp
-
-# Note: MCP communication uses POST to the same endpoint
+# Test MCP initialize
+curl -X POST https://your-app.vercel.app/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 ```
 
-## API Documentation
+---
 
-### MCP Tools
+## MCP Tools
 
-The server provides 12 MCP tools for comprehensive Wikipedia access. **All tools support dynamic language selection via optional arguments.**
+All 13 tools accept optional `language` (e.g. `"ja"`) and `country` (e.g. `"JP"`) parameters. When set, the query is sent as-is to that language's Wikipedia endpoint (e.g. `ja.wikipedia.org`). Wikipedia's own search can often match a short English title phrase to the correct local article, but there is no translation layer in this server.
 
-#### Common Arguments for All Tools
+### Tool reference
 
-- `language`: Wikipedia language code (e.g., "es", "ja", "fr"). Overrides default.
-- `country`: Country code to infer language (e.g., "US", "JP", "CN"). Overrides default.
+| Tool | Description |
+|---|---|
+| `search_wikipedia` | Search by keyword in one language |
+| `multi_search_wikipedia` | Run multiple searches across multiple languages in parallel |
+| `get_article` | Full article — plain text extract, or wikitext with `full: true` |
+| `get_summary` | Introductory summary only |
+| `get_sections` | Table of contents (section titles + levels) |
+| `get_links` | All internal wikilinks in an article |
+| `get_coordinates` | Latitude/longitude for geographic articles |
+| `get_related_topics` | Related articles via link graph |
+| `summarize_article_for_query` | Summary focused on a specific question |
+| `summarize_article_section` | Summary of one named section |
+| `extract_key_facts` | Bullet-list of key facts |
+| `test_wikipedia_connectivity` | API diagnostics + auth status |
+| `list_supported_countries` | All supported language and country codes |
 
-#### `search_wikipedia`
-Search Wikipedia for articles matching a query.
+### MCP Prompts
 
-```typescript
-{
-  "query": "artificial intelligence",
-  "limit": 10,
-  "language": "en" // Optional: search English Wikipedia
-}
+Three prompt templates are registered and available via `prompts/list` / `prompts/get`:
+
+| Prompt | Description |
+|---|---|
+| `search_in_native_language` | Query format guidance for non-English Wikipedia |
+| `wikipedia_usage_guide` | Full guide covering all tools and best practices |
+| `multilingual_research` | Step-by-step guide for cross-language research |
+
+---
+
+## REST API
+
+Standard HTTP endpoints for non-MCP usage:
+
+```
+GET  /health
+GET  /search/:query?limit=10
+GET  /article/:title
+GET  /summary/:title
+GET  /sections/:title
+GET  /links/:title
+GET  /coordinates/:title
+GET  /related/:title?limit=10
+GET  /summary/:title/query/:query/length/:maxLength
+GET  /summary/:title/section/:section/length/:maxLength
+GET  /facts/:title?topic=...&count=5
+GET  /test-connectivity
+GET  /supported-countries
+POST /tools/:toolName
 ```
 
-#### `get_article`
-Get the full content of a Wikipedia article.
-
-```typescript
-{
-  "title": "Artificial intelligence",
-  "language": "es" // Optional: get from Spanish Wikipedia
-}
-```
-
-#### `get_summary`
-Get a concise summary of a Wikipedia article.
-
-```typescript
-{
-  "title": "Machine learning",
-  "country": "JP" // Optional: infer language from country code (Japanese)
-}
-```
-
-#### `get_sections`
-Get the sections of a Wikipedia article.
-
-```typescript
-{
-  "title": "Deep learning"
-}
-```
-
-#### `get_links`
-Get the links contained within a Wikipedia article.
-
-```typescript
-{
-  "title": "Neural network"
-}
-```
-
-#### `get_coordinates`
-Get the coordinates of a Wikipedia article.
-
-```typescript
-{
-  "title": "Paris"
-}
-```
-
-#### `get_related_topics`
-Get topics related to a Wikipedia article.
-
-```typescript
-{
-  "title": "Python",
-  "limit": 10
-}
-```
-
-#### `summarize_article_for_query`
-Get a summary tailored to a specific query.
-
-```typescript
-{
-  "title": "Climate change",
-  "query": "economic impact",
-  "max_length": 300
-}
-```
-
-#### `summarize_article_section`
-Get a summary of a specific section.
-
-```typescript
-{
-  "title": "World War II",
-  "section_title": "Causes",
-  "max_length": 200
-}
-```
-
-#### `extract_key_facts`
-Extract key facts from an article.
-
-```typescript
-{
-  "title": "Albert Einstein",
-  "topic_within_article": "scientific contributions",
-  "count": 5
-}
-```
-
-#### `test_wikipedia_connectivity`
-Test Wikipedia API connectivity and performance.
-
-```typescript
-{}
-```
-
-#### `list_supported_countries`
-List all supported country/locale codes.
-
-```typescript
-{}
-```
-
-### REST Endpoints
-
-The server also provides standard REST endpoints for non-MCP usage:
-
-```bash
-GET /search/{query}?limit={number}
-GET /article/{title}
-GET /summary/{title}
-# ... and more
-```
+---
 
 ## Architecture
 
-### Components
+```
+src/
+├── server.ts               # Express app wiring
+├── routes/
+│   ├── mcp.ts              # Streamable HTTP transport (POST + GET SSE + DELETE)
+│   └── rest.ts             # REST endpoints
+├── mcp-server.ts           # MCPServer helper — tool dispatch, language routing
+├── handlers.ts             # Tool handler functions
+├── toolRegistrations.ts    # SDK tool + prompt registration
+├── toolDefinitions.ts      # JSON Schema definitions (for REST /mcp info)
+├── prompts.ts              # Prompt template logic
+├── wikipedia-client.ts     # Wikipedia Action API client
+├── sanitize.ts             # Input sanitization
+├── middleware.ts           # Rate limiting, Server header removal
+├── utils.ts                # Shared helpers
+└── types.ts                # TypeScript interfaces
+```
 
-1. **WikipediaClient**: Core Wikipedia API client with caching
-2. **MCPServer**: MCP protocol implementation (supports SSE)
-3. **Express Server**: HTTP API and REST endpoints
-4. **TypeScript**: Type-safe development and compilation
+### Transport design
 
-### Performance Features
+The server uses **stateless Streamable HTTP** — the correct mode for serverless platforms:
 
-- **Intelligent Caching**: Reduces API calls and improves response times
-- **Rate Limiting**: Respects Wikipedia API limits
-- **Error Handling**: Robust error handling with detailed responses
-- **Connection Pooling**: Efficient HTTP connection management
-- **Memory Optimization**: Optimized for serverless environments
+- `POST /mcp` — receives JSON-RPC messages, returns JSON or SSE stream
+- `GET /mcp` — opens an SSE channel for server-initiated messages (clients reconnect on timeout)
+- `DELETE /mcp` — session termination (acknowledged; no server-side sessions to clean up)
+
+A fresh `McpServer` + `StreamableHTTPServerTransport` instance is created for each request. All Wikipedia logic is handled by the shared, stateless `MCPServer` helper.
+
+---
 
 ## Development
 
-### Local Development
-
 ```bash
-# Install dependencies
 npm install
-
-# Run in development mode
-npm run dev
-
-# Build for production
-npm run build
-
-# Start production server
-npm start
+npm run dev       # tsx watch mode on port 8000
+npm run build     # tsc → dist/
+npm start         # node dist/server.js
+vercel dev        # local Vercel simulation
 ```
 
-### Project Structure
+---
 
-```
-src/
-├── types.ts              # TypeScript type definitions
-├── wikipedia-client.ts   # Wikipedia API client
-├── mcp-server.ts         # MCP protocol server logic
-└── server.ts             # Express server, SDK integration, and routes
-```
+## Bot authentication
 
-## Deployment
+For higher Wikipedia API rate limits, create a bot password:
 
-### Vercel (Recommended)
+1. Log in to your Wikipedia account
+2. Go to [Special:BotPasswords](https://en.wikipedia.org/wiki/Special:BotPasswords)
+3. Create a new bot password
+4. Set `WIKIPEDIA_BOT_USERNAME=YourAccount@BotName` and `WIKIPEDIA_BOT_PASSWORD=...`
 
-1. **One-click Deploy**: Use the deploy button above
-2. **CLI Deploy**:
-   ```bash
-   vercel
-   ```
-
-### Other Platforms
-
-The server can be deployed to any Node.js platform:
-
-```bash
-# Build the project
-npm run build
-
-# Start the server
-npm start
-```
-
-## Rate Limiting and API Keys
-
-For high-volume usage, obtain a Wikipedia API access token:
-
-1. Create a Wikipedia account
-2. Generate an API token at [Special:BotPasswords](https://en.wikipedia.org/wiki/Special:BotPasswords)
-3. Set the `WIKIPEDIA_ACCESS_TOKEN` environment variable
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-### Development Guidelines
-
-- Follow TypeScript strict mode
-- Add JSDoc comments for all public methods
-- Include error handling for all API calls
-- Test with multiple Wikipedia languages
-- Ensure compatibility with MCP protocol
+---
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel/discussions)
-- **Documentation**: [Wiki](https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel/wiki)
-
-## Comparison with Python Version
-
-| Feature | Python Version | TypeScript Version |
-|---------|---------------|-------------------|
-| Performance | Good | Excellent |
-| Deployment | Local/Docker | Serverless/Vercel |
-| Memory Usage | Higher | Optimized |
-| Cold Start | N/A | Minimal |
-| Scalability | Horizontal | Auto-scaling |
-| Type Safety | Dynamic | Full TypeScript |
+MIT
