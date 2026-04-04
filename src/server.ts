@@ -3,11 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { WikipediaClient } from './wikipedia-client.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { MCPServer } from './mcp-server.js';
 import { globalLimiter, removeServerHeader } from './middleware.js';
-import { registerTools } from './toolRegistrations.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerRestRoutes } from './routes/rest.js';
 
@@ -31,7 +28,7 @@ const botConfig = {
   botPassword: process.env.WIKIPEDIA_BOT_PASSWORD,
 };
 
-// Initialize Wikipedia client with environment variables
+// Initialize Wikipedia client (used by REST routes)
 const wikipediaClient = new WikipediaClient({
   language: process.env.WIKIPEDIA_LANGUAGE || 'en',
   country: process.env.WIKIPEDIA_COUNTRY,
@@ -39,7 +36,9 @@ const wikipediaClient = new WikipediaClient({
   ...botConfig
 });
 
-// Initialize MCPServer helper (for tool logic reuse)
+// MCPServer helper — stateless, shared across requests.
+// MCP SDK McpServer instances are created fresh per-request inside registerMcpRoutes
+// to satisfy Streamable HTTP's stateless transport model on Vercel.
 const mcpHelper = new MCPServer({
   language: process.env.WIKIPEDIA_LANGUAGE || 'en',
   country: process.env.WIKIPEDIA_COUNTRY,
@@ -47,17 +46,7 @@ const mcpHelper = new MCPServer({
   ...botConfig
 });
 
-// Initialize SDK McpServer
-const mcpServer = new McpServer({
-  name: 'wikipedia-mcp-server',
-  version: '1.0.0'
-});
-
-// Simple in-memory store for session data
-const sessionStore = new Map<string, any>();
-
-// Register SDK tools, MCP routes, and REST routes
-registerTools(mcpServer, mcpHelper);
+// Register routes
 registerMcpRoutes(app, mcpHelper);
 registerRestRoutes(app, wikipediaClient, mcpHelper);
 
@@ -74,22 +63,22 @@ app.use('*', (req, res) => {
     path: req.originalUrl,
     method: req.method,
     available_endpoints: [
-      'GET /health',
-      'GET /mcp',
+      'GET  /health',
       'POST /mcp',
-      'POST /messages',
-      'GET /search/:query',
-      'GET /article/:title',
-      'GET /summary/:title',
-      'GET /sections/:title',
-      'GET /links/:title',
-      'GET /coordinates/:title',
-      'GET /related/:title',
-      'GET /summary/:title/query/:query/length/:maxLength',
-      'GET /summary/:title/section/:section/length/:maxLength',
-      'GET /facts/:title',
-      'GET /test-connectivity',
-      'GET /supported-countries',
+      'GET  /mcp',
+      'DELETE /mcp',
+      'GET  /search/:query',
+      'GET  /article/:title',
+      'GET  /summary/:title',
+      'GET  /sections/:title',
+      'GET  /links/:title',
+      'GET  /coordinates/:title',
+      'GET  /related/:title',
+      'GET  /summary/:title/query/:query/length/:maxLength',
+      'GET  /summary/:title/section/:section/length/:maxLength',
+      'GET  /facts/:title',
+      'GET  /test-connectivity',
+      'GET  /supported-countries',
       'POST /tools/:toolName'
     ]
   });
