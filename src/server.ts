@@ -15,7 +15,8 @@ const app = express();
 const port = process.env.PORT || 8000;
 
 // Middleware
-app.use(removeServerHeader);  // must be first — blanks Server header before any response
+app.set('trust proxy', 1);    // trust Vercel's edge proxy for X-Forwarded-For (required by express-rate-limit)
+app.use(removeServerHeader);  // blanks Server header before any response
 app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
