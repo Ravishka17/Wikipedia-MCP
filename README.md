@@ -1,87 +1,253 @@
-# Wikipedia MCP Server
+# Bluesky MCP Server
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel)
+A Model Context Protocol (MCP) server that provides comprehensive Bluesky/AT Protocol access for AI assistants. Built in TypeScript, deployed on Vercel, and fully compatible with the **MCP Streamable HTTP transport** (protocol version `2025-03-26`).
 
-A Model Context Protocol (MCP) server that provides comprehensive Wikipedia access for AI assistants. Built in TypeScript, deployed on Vercel, and fully compatible with the **MCP Streamable HTTP transport** (protocol version `2025-03-26`).
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Ravishka17/Bluesky-MCP)
 
 ## Features
 
-- 🔍 **Advanced Search** — find articles with relevance ranking
-- 📄 **Full Article Access** — plain text extracts or complete wikitext
-- 📝 **Smart Summaries** — concise summaries tailored to a specific query
-- 🗂️ **Section Analysis** — extract and summarize individual sections
-- 🔗 **Link Discovery** — internal links and related articles
-- 🌍 **Multi-language** — 50+ language codes, 140+ country codes, resolved automatically
-- 🔀 **Parallel Search** — `multi_search_wikipedia` runs multiple queries simultaneously
-- 🎯 **Fact Extraction** — structured key-fact lists from any article
-- 📍 **Coordinates** — lat/lon for geographic articles
-- ⚡ **Streamable HTTP** — full MCP transport support (POST + GET SSE + DELETE)
-- 🔒 **Security hardened** — input sanitization, tiered rate limiting, no `Server` header
-- 🚀 **Vercel ready** — stateless serverless deployment, zero cold-start friction
+- **Post Operations** — Create posts, get posts, view likes and reposts
+- **Feed Management** — Timeline, custom feeds, author feeds
+- **Search Engine** — Search posts and users/actors
+- **Profile Access** — View profiles, follower counts, bios (single and batch)
+- **Thread Viewing** — Explore post threads and conversations
+- **Bookmarks** — Create, delete, and list private bookmarks
+- **Age Assurance** — Begin flow, get config and state
+- **Secure Credential Management** — Credentials injected per-request via headers, never stored
+- **Streamable HTTP** — Full MCP transport support (POST + GET + OPTIONS)
+- **Multi-client Auth** — Three credential methods for different MCP clients
+- **Vercel Ready** — Stateless serverless deployment
 
 ---
 
 ## Quick Start
 
-### 1. Deploy
+### 1. Deploy to Vercel
+
+Click the button above, or clone and deploy manually:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/wikipedia-mcp-vercel.git
-cd wikipedia-mcp-vercel
+git clone https://github.com/Ravishka17/Bluesky-MCP.git
+cd Bluesky-MCP
 vercel
 ```
 
-Or use the **Deploy with Vercel** button above.
+### 2. Create a Bluesky App Password
 
-### 2. Connect your AI client
+1. Log in to Bluesky
+2. Go to **Settings → App Passwords**
+3. Create a new app password
+4. Note your handle (e.g. `yourname.bsky.social`) and the generated password
 
-The server implements **MCP Streamable HTTP transport** (`2025-03-26`).  
-Both the POST channel (client → server) and the GET SSE channel (server → client) are supported.
+### 3. Connect Your AI Client
 
 **MCP endpoint:** `https://your-app.vercel.app/mcp`
 
-#### Claude Desktop
+---
+
+## Authentication
+
+Credentials are **never stored** on the server. They are sent per-request via HTTP headers and held in memory only for the duration of that request.
+
+Three credential methods are supported, with the following priority order:
+
+### Method 1 — Two Separate Headers
+Best for: HuggingChat, curl, any client supporting custom headers.
+
+| Header | Value |
+|--------|-------|
+| `X-BLUESKY-IDENTIFIER` | Your handle or email |
+| `X-BLUESKY-PASSWORD` | Your app password |
+
+```bash
+curl -X POST https://your-app.vercel.app/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-BLUESKY-IDENTIFIER: yourname.bsky.social" \
+  -H "X-BLUESKY-PASSWORD: your-app-password" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+### Method 2 — Single Combined Header
+Best for: Mistral Vibe CLI, clients with one `api_key_header` field.
+
+Format: `handle:app-password` (splits on the first colon only, so passwords containing colons are safe)
+
+```
+X-BLUESKY-CREDENTIALS: yourname.bsky.social:your-app-password
+```
+
+### Method 3 — Authorization Bearer
+Best for: MCP Playground, OpenAI-compatible clients, any tool using the `Authorization` header.
+
+```
+Authorization: Bearer yourname.bsky.social:your-app-password
+```
+
+---
+
+## Client Configuration
+
+### HuggingChat
+
+In the **Add MCP Server** dialog, expand **HTTP Headers** and add:
+
+| Header name | Value |
+|-------------|-------|
+| `X-BLUESKY-IDENTIFIER` | `yourname.bsky.social` |
+| `X-BLUESKY-PASSWORD` | `your-app-password` |
+
+### Claude Desktop
 
 ```json
 {
   "mcpServers": {
-    "wikipedia": {
+    "bluesky": {
       "type": "http",
-      "url": "https://your-app.vercel.app/mcp"
+      "url": "https://your-app.vercel.app/mcp",
+      "headers": {
+        "X-BLUESKY-IDENTIFIER": "yourname.bsky.social",
+        "X-BLUESKY-PASSWORD": "your-app-password"
+      }
     }
   }
 }
 ```
 
-#### Claude Code / CLI
+### Claude Code / CLI
 
 ```bash
-claude mcp add wikipedia --transport http https://your-app.vercel.app/mcp
+claude mcp add bluesky --transport http https://your-app.vercel.app/mcp
 ```
 
-#### Any MCP client (generic)
+### Mistral Vibe (`~/.vibe/config.toml`)
 
-Configure the client with transport type `streamable-http` and the endpoint URL above.  
-The server uses **stateless mode** (no `Mcp-Session-Id` header), which is correct and expected for serverless deployments.
+```toml
+[[mcp_servers]]
+name = "bluesky"
+transport = "streamable-http"
+url = "https://your-app.vercel.app/mcp"
+api_key_env = "BLUESKY_CREDENTIALS"
+api_key_header = "X-BLUESKY-CREDENTIALS"
+api_key_format = "{}"
+```
 
-### 3. Environment variables (optional)
+Then set in `~/.vibe/.env`:
+```
+BLUESKY_CREDENTIALS=yourname.bsky.social:your-app-password
+```
 
-| Variable | Default | Description |
-|---|---|---|
-| `WIKIPEDIA_LANGUAGE` | `en` | Wikipedia language code (e.g. `ja`, `es`, `de`) |
-| `WIKIPEDIA_COUNTRY` | `US` | Country code → language mapping (e.g. `JP`, `CN`, `LK`) |
-| `ENABLE_CACHE` | `false` | In-memory cache (useful for local dev) |
-| `WIKIPEDIA_BOT_USERNAME` | — | Bot account username (`Account@BotName`) |
-| `WIKIPEDIA_BOT_PASSWORD` | — | Bot account password |
-| `PORT` | `8000` | Local dev port (ignored by Vercel) |
+### YAML-based clients (config.yaml)
 
-Copy `.env.example` → `.env` for local development.
+```yaml
+mcp_servers:
+  bluesky:
+    url: https://your-app.vercel.app/mcp
+    headers:
+      X-BLUESKY-CREDENTIALS: "${BLUESKY_CREDENTIALS}"
+```
 
-### 4. Verify
+Set in your shell or `.env`:
+```
+BLUESKY_CREDENTIALS=yourname.bsky.social:your-app-password
+```
+
+### MCP Playground
+
+- **Remote Server URL:** `https://your-app.vercel.app/mcp`
+- **Auth Header:** `Bearer yourname.bsky.social:your-app-password`
+
+### Generic MCP Client
+
+Configure transport type `streamable-http` with the endpoint URL and any of the three auth methods above.
+
+---
+
+## MCP Tools
+
+### Post Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `create_post` | Create a new post (max 300 chars, optional reply/lang) | ✅ |
+| `get_posts` | Fetch specific posts by URI (up to 25) | ❌ |
+| `get_likes` | Get users who liked a post | ❌ |
+| `get_reposted_by` | Get users who reposted a post | ❌ |
+| `like_post` | Like a post | ✅ |
+| `repost_post` | Repost a post | ✅ |
+
+### Feed Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `get_timeline` | Get home timeline (followed accounts) | ✅ |
+| `get_feed` | Get posts from a feed generator (at:// URI) | ❌ |
+| `get_author_feed` | Get posts by a specific user | ❌ |
+| `get_thread` | Get post thread with replies and parents | ❌ |
+
+### Profile Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `get_profile` | Get detailed profile for a single user | ❌ |
+| `get_profiles` | Get profiles for multiple users (batch, up to 25) | ❌ |
+| `get_suggestions` | Get suggested users to follow | ✅ |
+
+### Search Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `search_posts` | Search posts by keyword, author, lang, mentions | ❌ |
+| `search_actors` | Search for users by name or handle | ❌ |
+| `search_actors_typeahead` | Autocomplete user search | ❌ |
+
+### Account Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `get_preferences` | Get account preferences and content filters | ✅ |
+
+### Bookmark Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `create_bookmark` | Save a post as a private bookmark | ✅ |
+| `delete_bookmark` | Remove a bookmark by ID | ✅ |
+| `get_bookmarks` | List all private bookmarks | ✅ |
+
+### Age Assurance Operations
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `begin_age_assurance` | Initiate the age assurance flow | ✅ |
+| `get_age_assurance_config` | Get age assurance provider config | ✅ |
+| `get_age_assurance_state` | Get current age assurance status | ✅ |
+
+### Utility
+
+| Tool | Description | Auth Required |
+|------|-------------|:---:|
+| `test_connectivity` | Test connection and check auth status | ❌ |
+
+---
+
+## MCP Prompts
+
+| Prompt | Description |
+|--------|-------------|
+| `bluesky_usage_guide` | Comprehensive guide for Bluesky tasks |
+| `search_posts_template` | Template for searching posts |
+| `compose_post` | Template for composing posts |
+
+---
+
+## Verify Deployment
 
 ```bash
 # Health check
 curl https://your-app.vercel.app/health
+
+# Check available auth methods
+curl https://your-app.vercel.app/mcp
 
 # Test MCP initialize
 curl -X POST https://your-app.vercel.app/mcp \
@@ -91,118 +257,60 @@ curl -X POST https://your-app.vercel.app/mcp \
 
 ---
 
-## MCP Tools
+## Security
 
-All 13 tools accept optional `language` (e.g. `"ja"`) and `country` (e.g. `"JP"`) parameters. When set, the query is sent as-is to that language's Wikipedia endpoint (e.g. `ja.wikipedia.org`). Wikipedia's own search can often match a short English title phrase to the correct local article, but there is no translation layer in this server.
-
-### Tool reference
-
-| Tool | Description |
-|---|---|
-| `search_wikipedia` | Search by keyword in one language |
-| `multi_search_wikipedia` | Run multiple searches across multiple languages in parallel |
-| `get_article` | Full article — plain text extract, or wikitext with `full: true` |
-| `get_summary` | Introductory summary only |
-| `get_sections` | Table of contents (section titles + levels) |
-| `get_links` | All internal wikilinks in an article |
-| `get_coordinates` | Latitude/longitude for geographic articles |
-| `get_related_topics` | Related articles via link graph |
-| `summarize_article_for_query` | Summary focused on a specific question |
-| `summarize_article_section` | Summary of one named section |
-| `extract_key_facts` | Bullet-list of key facts |
-| `test_wikipedia_connectivity` | API diagnostics + auth status |
-| `list_supported_countries` | All supported language and country codes |
-
-### MCP Prompts
-
-Three prompt templates are registered and available via `prompts/list` / `prompts/get`:
-
-| Prompt | Description |
-|---|---|
-| `search_in_native_language` | Query format guidance for non-English Wikipedia |
-| `wikipedia_usage_guide` | Full guide covering all tools and best practices |
-| `multilingual_research` | Step-by-step guide for cross-language research |
-
----
-
-## REST API
-
-Standard HTTP endpoints for non-MCP usage:
-
-```
-GET  /health
-GET  /search/:query?limit=10
-GET  /article/:title
-GET  /summary/:title
-GET  /sections/:title
-GET  /links/:title
-GET  /coordinates/:title
-GET  /related/:title?limit=10
-GET  /summary/:title/query/:query/length/:maxLength
-GET  /summary/:title/section/:section/length/:maxLength
-GET  /facts/:title?topic=...&count=5
-GET  /test-connectivity
-GET  /supported-countries
-POST /tools/:toolName
-```
-
----
-
-## Architecture
-
-```
-src/
-├── server.ts               # Express app wiring
-├── routes/
-│   ├── mcp.ts              # Streamable HTTP transport (POST + GET SSE + DELETE)
-│   └── rest.ts             # REST endpoints
-├── mcp-server.ts           # MCPServer helper — tool dispatch, language routing
-├── handlers.ts             # Tool handler functions
-├── toolRegistrations.ts    # SDK tool + prompt registration
-├── toolDefinitions.ts      # JSON Schema definitions (for REST /mcp info)
-├── prompts.ts              # Prompt template logic
-├── wikipedia-client.ts     # Wikipedia Action API client
-├── sanitize.ts             # Input sanitization
-├── middleware.ts           # Rate limiting, Server header removal
-├── utils.ts                # Shared helpers
-└── types.ts                # TypeScript interfaces
-```
-
-### Transport design
-
-The server uses **stateless Streamable HTTP** — the correct mode for serverless platforms:
-
-- `POST /mcp` — receives JSON-RPC messages, returns JSON or SSE stream
-- `GET /mcp` — opens an SSE channel for server-initiated messages (clients reconnect on timeout)
-- `DELETE /mcp` — session termination (acknowledged; no server-side sessions to clean up)
-
-A fresh `McpServer` + `StreamableHTTPServerTransport` instance is created for each request. All Wikipedia logic is handled by the shared, stateless `MCPServer` helper.
+1. **Credentials never stored** — not in Vercel env vars, not in git, not on disk
+2. **Per-request injection** — credentials are passed in headers and held in memory only for that request
+3. **Three auth methods** — flexible for any client without compromising security
+4. **Input sanitization** — all inputs validated and sanitized before hitting the Bluesky API
+5. **Rate limiting** — tiered limits for read vs write operations
+6. **Security headers** — X-Frame-Options, X-Content-Type-Options, etc.
 
 ---
 
 ## Development
 
 ```bash
-npm install
-npm run dev       # tsx watch mode on port 8000
-npm run build     # tsc → dist/
-npm start         # node dist/server.js
-vercel dev        # local Vercel simulation
+# Install dependencies
+pnpm install
+
+# Run in development mode
+pnpm dev
+
+# Build for production
+pnpm build
 ```
+
+For local development, credentials can be passed via headers in every request. No env vars needed.
 
 ---
 
-## Bot authentication
+## Architecture
 
-For higher Wikipedia API rate limits, create a bot password:
-
-1. Log in to your Wikipedia account
-2. Go to [Special:BotPasswords](https://en.wikipedia.org/wiki/Special:BotPasswords)
-3. Create a new bot password
-4. Set `WIKIPEDIA_BOT_USERNAME=YourAccount@BotName` and `WIKIPEDIA_BOT_PASSWORD=...`
+```
+Bluesky-MCP/
+├── app/
+│   ├── mcp/route.ts        # MCP endpoint — credential extraction + transport
+│   ├── health/route.ts     # Health check
+│   ├── layout.tsx
+│   └── page.tsx
+├── src/
+│   ├── mcp-server.ts       # MCP server — tool routing, credential injection
+│   ├── bluesky-client.ts   # Bluesky API client (all methods)
+│   ├── handlers.ts         # Tool handlers
+│   ├── toolDefinitions.ts  # Tool schemas
+│   ├── sanitize.ts         # Input sanitization
+│   ├── middleware.ts       # Rate limiting, security headers
+│   ├── types.ts            # TypeScript types
+│   └── utils.ts            # Utilities
+├── vercel.json
+└── package.json
+```
 
 ---
 
 ## License
 
-MIT
+This project is released into the public domain under [The Unlicense](https://unlicense.org).
+
+This is free and unencumbered software. Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, for any purpose, commercial or non-commercial, and by any means, without any conditions or restrictions.
